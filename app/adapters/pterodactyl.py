@@ -25,6 +25,13 @@ class PterodactylAdapter:
   def consume_startup_transition(self, server_id: str) -> bool:
       return self._tracker.pop_just_started(server_id)
 
+  def consume_startup_transition(self, server_id: str) -> bool:
+    return self._tracker.pop_just_started(server_id)
+
+  def invalidate_power_cache(self, server_id: Optional[str] = None) -> None:
+    """Delegates cache flushing to the underlying PowerStateTracker."""
+    self._tracker.invalidate(server_id)
+
   async def get_external_ip(self) -> Optional[str]:
         now = time.time()
         if hasattr(self, "_external_ip_cache"):

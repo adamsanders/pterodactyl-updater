@@ -1,7 +1,7 @@
 import asyncio
 from app.adapters.a2s import A2SAdapter
 from app.core.config import resolve_query_port
-from app.core.models import ServerStatusDTO
+from app.core.models import ServerModel, ServerStatusDTO
 from app.core.protocols import (
     A2SGateway,
     CallTrackerProtocol,
@@ -97,8 +97,6 @@ async def get_status_api(
     tracker: CallTrackerProtocol = Depends(get_call_tracker),
 ):
   cfg = repo.load()
-  servers_status = []
-  config_dirty = False
 
   tracker.record(
       endpoint="Internal: /api/status Poll",
@@ -110,14 +108,17 @@ async def get_status_api(
 
   ext_ip = await ptero.get_external_ip()
 
-  for idx, srv in enumerate(cfg.servers):
+  async def get_single_server_status(
+      idx: int, srv: ServerModel
+  ) -> tuple[ServerStatusDTO, bool]:
+    dirty = False
     power = "unknown"
     if cfg.panel_url and cfg.api_key and srv.server_id:
       power = await ptero.get_power_state(
           cfg.panel_url, cfg.api_key, srv.server_id
       )
 
-    # Real-time cancellation if server was restarted or stopped externally
+    # Real-time countdown cancellation if power state changed externally
     if countdown.is_running(srv.server_id) and power in (
         "starting",
         "stopping",
@@ -125,7 +126,7 @@ async def get_status_api(
     ):
       countdown.stop(srv.server_id)
       srv.last_status = f"Manual {power} detected — countdown cancelled"
-      config_dirty = True
+      dirty = True
 
     # Immediate build inspection the instant a server finishes booting into Online
     if ptero.consume_startup_transition(srv.server_id):
@@ -157,26 +158,40 @@ async def get_status_api(
           ext_ip, query_port
       )
 
-    servers_status.append(
-        ServerStatusDTO(
-            idx=idx,
-            server_id=srv.server_id,
-            name=srv.name,
-            power_state=power,
-            current_build=srv.current_build,
-            latest_build=srv.latest_build,
-            last_status=srv.last_status,
-            target_timestamp=target_ts,
-            remaining_seconds=rem,
-            is_updating=is_upd,
-            external_ip=ext_ip,
-            internal_ip=internal_ip,
-            port=game_port,
-            query_port=query_port,
-            player_count=player_count,
-            max_players=max_players,
-        ).model_dump()
+    dto = ServerStatusDTO(
+        idx=idx,
+        server_id=srv.server_id,
+        name=srv.name,
+        power_state=power,
+        current_build=srv.current_build,
+        latest_build=srv.latest_build,
+        last_status=srv.last_status,
+        target_timestamp=target_ts,
+        remaining_seconds=rem,
+        is_updating=is_upd,
+        external_ip=ext_ip,
+        internal_ip=internal_ip,
+        port=game_port,
+        query_port=query_port,
+        player_count=player_count,
+        max_players=max_players,
     )
+    return dto, dirty
+
+  # Query all servers concurrently in parallel
+  results = await asyncio.gather(
+      *(
+          get_single_server_status(idx, srv)
+          for idx, srv in enumerate(cfg.servers)
+      )
+  )
+
+  servers_status = []
+  config_dirty = False
+  for dto, is_dirty in results:
+    servers_status.append(dto.model_dump())
+    if is_dirty:
+      config_dirty = True
 
   if config_dirty:
     repo.save(cfg)
@@ -259,13 +274,22 @@ async def clear_preview(
 
 @router.post("/api/servers/{server_idx}/power/{action}")
 async def server_power_action(
-    server_idx: int, action: str, service: ServerService = Depends(get_service)
+    server_idx: int,
+    action: str,
+    service: ServerService = Depends(get_service),
+    ptero: PterodactylGateway = Depends(get_ptero),
+    repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   success, err = await service.send_power_action(server_idx, action)
   if not success:
     return JSONResponse(
         {"status": "error", "message": err or "Action failed"}, status_code=400
     )
+  # Instantly invalidate cached state for this server so subsequent poll queries Wings immediately
+  cfg = repo.load()
+  if 0 <= server_idx < len(cfg.servers):
+    ptero.invalidate_power_cache(cfg.servers[server_idx].server_id)
+
   return JSONResponse(
       {"status": "ok", "action": action, "server_idx": server_idx}
   )
@@ -337,7 +361,10 @@ async def test_webhook(
 async def check_now(
     request: Request,
     orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
+    ptero: PterodactylGateway = Depends(get_ptero),
 ):
+  # Invalidate cached states across all servers before running a unified update check
+  ptero.invalidate_power_cache()
   await orchestrator.run_update_check()
   if request.headers.get("accept") == "application/json":
     return JSONResponse({"status": "ok"})

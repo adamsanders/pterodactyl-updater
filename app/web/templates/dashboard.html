@@ -610,12 +610,41 @@
         renderTestPreview(data.preview);
       } catch (err) {}
     }
-    setInterval(pollLiveStatus, 3000);
+    // Dynamic status poll timer & tab visibility throttling
+    let statusPollTimer = null;
+    const ACTIVE_POLL_INTERVAL = 3000;
+    const BACKGROUND_POLL_INTERVAL = 15000; // Throttles backgrounded tabs to 15s to conserve network & API quota
+
+    function startStatusPolling(interval = ACTIVE_POLL_INTERVAL) {
+      if (statusPollTimer) clearInterval(statusPollTimer);
+      statusPollTimer = setInterval(pollLiveStatus, interval);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        // Tab backgrounded or minimized: throttle status polling
+        startStatusPolling(BACKGROUND_POLL_INTERVAL);
+        // Pause live console polling while tab is not visible
+        if (telemetryPollTimer) {
+          clearInterval(telemetryPollTimer);
+          telemetryPollTimer = null;
+        }
+      } else {
+        // Tab foregrounded: immediately refresh status and restore 3s active polling
+        pollLiveStatus();
+        startStatusPolling(ACTIVE_POLL_INTERVAL);
+        if (isConsoleOpen && !telemetryPollTimer) {
+          pollTelemetry();
+          telemetryPollTimer = setInterval(pollTelemetry, 1000);
+        }
+      }
+    });
 
     window.addEventListener('DOMContentLoaded', () => {
       makeDraggable('test-simulator-window', 'test-simulator-header');
       makeDraggable('live-console-window', 'live-console-header');
       pollLiveStatus();
+      startStatusPolling(ACTIVE_POLL_INTERVAL);
 
       const urlParams = new URLSearchParams(window.location.search);
       const toastType = urlParams.get('toast');

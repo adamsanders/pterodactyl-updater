@@ -46,6 +46,9 @@ class PterodactylGateway(Protocol):
   def consume_startup_transition(self, server_id: str) -> bool:
     ...
 
+  def invalidate_power_cache(self, server_id: Optional[str] = None) -> None:
+    ...
+
   async def get_external_ip(self) -> Optional[str]:
     ...
 
