@@ -4,6 +4,7 @@ import re
 import time
 from typing import Optional, Tuple
 from app.adapters.power_tracker import PowerStateTracker
+from urllib.parse import urlparse
 import httpx
 
 logger = logging.getLogger("updater.pterodactyl")
@@ -25,9 +26,6 @@ class PterodactylAdapter:
   def consume_startup_transition(self, server_id: str) -> bool:
       return self._tracker.pop_just_started(server_id)
 
-  def consume_startup_transition(self, server_id: str) -> bool:
-    return self._tracker.pop_just_started(server_id)
-
   def invalidate_power_cache(self, server_id: Optional[str] = None) -> None:
     """Delegates cache flushing to the underlying PowerStateTracker."""
     self._tracker.invalidate(server_id)
@@ -48,8 +46,6 @@ class PterodactylAdapter:
         except Exception:
             pass
         return getattr(self, "_external_ip_cache", (None, 0))[0]
-
-  from urllib.parse import urlparse
 
   async def get_server_allocation(
       self, panel_url: str, api_key: str, server_id: str

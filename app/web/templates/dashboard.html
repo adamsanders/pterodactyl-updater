@@ -624,9 +624,10 @@
     }
     // Dynamic status poll timer & tab visibility throttling
     let statusPollTimer = null;
+    let currentPollInterval = null; // <-- FIX: Declare currentPollInterval
     const FAST_POLL_INTERVAL = 1500;       // 1.5s when a server is starting/stopping
     const STEADY_POLL_INTERVAL = 4000;     // 4.0s when all servers are steady
-    const BACKGROUND_POLL_INTERVAL = 8000; // 8.0s when tab is hidden (reduced from 15s)
+    const BACKGROUND_POLL_INTERVAL = 8000; // 8.0s when tab is hidden
 
     function startStatusPolling(interval = STEADY_POLL_INTERVAL) {
       if (statusPollTimer) clearInterval(statusPollTimer);
@@ -635,17 +636,14 @@
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
-        // Tab backgrounded or minimized: throttle status polling
         startStatusPolling(BACKGROUND_POLL_INTERVAL);
-        // Pause live console polling while tab is not visible
         if (telemetryPollTimer) {
           clearInterval(telemetryPollTimer);
           telemetryPollTimer = null;
         }
       } else {
-        // Tab foregrounded: immediately refresh status and restore 3s active polling
         pollLiveStatus();
-        startStatusPolling(ACTIVE_POLL_INTERVAL);
+        startStatusPolling(STEADY_POLL_INTERVAL); // <-- FIX: was ACTIVE_POLL_INTERVAL
         if (isConsoleOpen && !telemetryPollTimer) {
           pollTelemetry();
           telemetryPollTimer = setInterval(pollTelemetry, 1000);
@@ -657,7 +655,7 @@
       makeDraggable('test-simulator-window', 'test-simulator-header');
       makeDraggable('live-console-window', 'live-console-header');
       pollLiveStatus();
-      startStatusPolling(ACTIVE_POLL_INTERVAL);
+      startStatusPolling(STEADY_POLL_INTERVAL); // <-- FIX: was ACTIVE_POLL_INTERVAL
 
       const urlParams = new URLSearchParams(window.location.search);
       const toastType = urlParams.get('toast');
