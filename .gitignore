@@ -1,0 +1,28 @@
+# Local configuration and credentials
+config.json
+data/config.json
+data/*.json
+!data/config.example.json
+.env
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE and OS metadata
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs and runtime data
+*.log

@@ -1,0 +1,24 @@
+{
+  "panel_url": "http://panel.example.com",
+  "api_key": "ptlc_YOUR_CLIENT_API_KEY_HERE",
+  "check_interval": 2,
+  "discord_webhook": "https://discord.com/api/webhooks/...",
+  "test_mode": false,
+  "last_check": "Never",
+  "last_status": "Idle",
+  "servers": [
+    {
+      "name": "Example Game Server",
+      "server_id": "your_server_id_here",
+      "app_id": "896660",
+      "manifest_path": "steamapps/appmanifest_896660.acf",
+      "auto_restart": true,
+      "discord_alerts": true,
+      "warn_ingame_countdown": true,
+      "warn_discord_countdown": false,
+      "current_build": "Unknown",
+      "latest_build": "Unknown",
+      "last_status": "Idle"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+services:
+  updater:
+    build: .
+    container_name: pterodactyl-updater
+    restart: unless-stopped
+    ports:
+      - "8090:8080" # Maps host port 8090 to internal container port 8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/data
