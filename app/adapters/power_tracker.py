@@ -10,15 +10,16 @@ class PowerStateTracker:
 
   STARTUP_GRACE_DURATION: float = 30.0
   MAX_STARTUP_DURATION: float = 180.0
-  STOPPING_GRACE_DURATION: float = 6.0
-  RUNNING_CONFIRMATION_THRESHOLD: int = 2
+  MAX_STOPPING_DURATION: float = 45.0
+  # Grace period if Stop was clicked while the container was in "starting"
+  ABORTED_START_STOP_GRACE: float = 8.0
   RESTART_LOCKOUT_DURATION: float = 8.0
   OFFLINE_CONFIRMATION_THRESHOLD: int = 3
 
   # Tiered Cache TTLs:
-  # Transitional states require fast updates for UI snappiness
-  TRANSITIONAL_CACHE_TTL: float = 2.5
-  # Steady states cache longer to avoid spamming Wings (reduces steady-state CPM by ~80%)
+  # Transitional states require fast updates (1.0) for UI responsiveness
+  TRANSITIONAL_CACHE_TTL: float = 1.0
+  # Steady states cache longer (15s) to avoid spamming Wings
   STEADY_CACHE_TTL: float = 15.0
 
   def __init__(self):
@@ -38,9 +39,9 @@ class PowerStateTracker:
           "starting_since": 0.0,
           "startup_grace_until": 0.0,
           "stopping_since": 0.0,
+          "stopped_during_start": False,
           "restart_lockout_until": 0.0,
           "consecutive_offline": 0,
-          "consecutive_running": 0,
           "just_started": False,
       }
     return self._states[server_id]
@@ -58,6 +59,7 @@ class PowerStateTracker:
   def register_signal(self, server_id: str, signal: str) -> str:
     now = time.time()
     entry = self._get_entry(server_id)
+    prev = entry["smoothed_state"]
 
     if signal in ("start", "restart"):
       entry["smoothed_state"] = "starting"
@@ -66,8 +68,8 @@ class PowerStateTracker:
       entry["starting_since"] = now
       entry["startup_grace_until"] = now + self.STARTUP_GRACE_DURATION
       entry["stopping_since"] = 0.0
+      entry["stopped_during_start"] = False
       entry["consecutive_offline"] = 0
-      entry["consecutive_running"] = 0
       entry["just_started"] = False
       if signal == "restart":
         entry["restart_lockout_until"] = now + self.RESTART_LOCKOUT_DURATION
@@ -78,10 +80,10 @@ class PowerStateTracker:
       entry["cached_state"] = "stopping"
       entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
       entry["stopping_since"] = now
+      entry["stopped_during_start"] = (prev == "starting")
       entry["starting_since"] = 0.0
       entry["startup_grace_until"] = 0.0
       entry["restart_lockout_until"] = 0.0
-      entry["consecutive_running"] = 0
       entry["just_started"] = False
       return "stopping"
 
@@ -123,32 +125,36 @@ class PowerStateTracker:
         entry["cached_state"] = "offline"
         entry["cache_expires"] = now + self.STEADY_CACHE_TTL
         entry["stopping_since"] = 0.0
-        entry["consecutive_running"] = 0
+        entry["stopped_during_start"] = False
         return "offline"
 
-      if normalized in ("running", "starting"):
-        entry["consecutive_running"] += 1
-        in_grace = stopping_duration < self.STOPPING_GRACE_DURATION
+      if normalized == "running":
+        # Special edge case: user clicked Stop while container was booting, and boot script ignored it
+        if entry["stopped_during_start"] and stopping_duration > self.ABORTED_START_STOP_GRACE:
+          entry["smoothed_state"] = "running"
+          entry["cached_state"] = "running"
+          entry["cache_expires"] = now + self.STEADY_CACHE_TTL
+          entry["stopping_since"] = 0.0
+          entry["stopped_during_start"] = False
+          return "running"
 
-        # Suppress brief 1-poll residual running while container halts
-        if (
-            in_grace
-            and entry["consecutive_running"]
-            < self.RUNNING_CONFIRMATION_THRESHOLD
-        ):
+        # Normal shutdown: container is still flushing world saves
+        if stopping_duration < self.MAX_STOPPING_DURATION:
           entry["cached_state"] = "stopping"
           entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
           return "stopping"
 
-        # Stop command was dropped/ignored during boot; accept that the server is alive
-        if normalized == "running":
-          entry["just_started"] = True
-        entry["smoothed_state"] = normalized
-        entry["cached_state"] = normalized
-        entry["cache_expires"] = now + self._get_ttl(normalized)
+        # Timed out waiting for stop (exceeded 45s)
+        entry["smoothed_state"] = "running"
+        entry["cached_state"] = "running"
+        entry["cache_expires"] = now + self.STEADY_CACHE_TTL
         entry["stopping_since"] = 0.0
-        entry["consecutive_running"] = 0
-        return normalized
+        return "running"
+
+      if normalized == "stopping":
+        entry["cached_state"] = "stopping"
+        entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
+        return "stopping"
 
     # Rule 3: Suppress spurious "offline" reports while in "starting"
     if prev == "starting":

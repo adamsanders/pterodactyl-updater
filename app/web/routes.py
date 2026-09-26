@@ -277,19 +277,12 @@ async def server_power_action(
     server_idx: int,
     action: str,
     service: ServerService = Depends(get_service),
-    ptero: PterodactylGateway = Depends(get_ptero),
-    repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   success, err = await service.send_power_action(server_idx, action)
   if not success:
     return JSONResponse(
         {"status": "error", "message": err or "Action failed"}, status_code=400
     )
-  # Instantly invalidate cached state for this server so subsequent poll queries Wings immediately
-  cfg = repo.load()
-  if 0 <= server_idx < len(cfg.servers):
-    ptero.invalidate_power_cache(cfg.servers[server_idx].server_id)
-
   return JSONResponse(
       {"status": "ok", "action": action, "server_idx": server_idx}
   )

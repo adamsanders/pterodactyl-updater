@@ -608,14 +608,27 @@
         }
 
         renderTestPreview(data.preview);
+        // Dynamically adjust polling frequency based on server states
+        if (!document.hidden) {
+          const hasTransitionalServer = data.servers.some(s => 
+            ['starting', 'stopping'].includes((s.power_state || '').toLowerCase()) || s.is_updating
+          );
+          const desiredInterval = hasTransitionalServer ? FAST_POLL_INTERVAL : STEADY_POLL_INTERVAL;
+          
+          if (currentPollInterval !== desiredInterval) {
+            currentPollInterval = desiredInterval;
+            startStatusPolling(desiredInterval);
+          }
+        }
       } catch (err) {}
     }
     // Dynamic status poll timer & tab visibility throttling
     let statusPollTimer = null;
-    const ACTIVE_POLL_INTERVAL = 3000;
-    const BACKGROUND_POLL_INTERVAL = 15000; // Throttles backgrounded tabs to 15s to conserve network & API quota
+    const FAST_POLL_INTERVAL = 1500;       // 1.5s when a server is starting/stopping
+    const STEADY_POLL_INTERVAL = 4000;     // 4.0s when all servers are steady
+    const BACKGROUND_POLL_INTERVAL = 8000; // 8.0s when tab is hidden (reduced from 15s)
 
-    function startStatusPolling(interval = ACTIVE_POLL_INTERVAL) {
+    function startStatusPolling(interval = STEADY_POLL_INTERVAL) {
       if (statusPollTimer) clearInterval(statusPollTimer);
       statusPollTimer = setInterval(pollLiveStatus, interval);
     }
