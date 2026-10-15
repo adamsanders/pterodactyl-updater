@@ -123,16 +123,24 @@ class PterodactylAdapter:
     return ServerAllocation(None, None)
 
   async def get_server_name(
-      self, panel_url: str, api_key: str, server_id: str
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+      raise_on_error: bool = False,
   ) -> ServerNameResult:
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}"
     try:
       res = await self._client.get(url, headers=self._headers(api_key))
       if res.status_code == 200:
         return ServerNameResult(res.json().get("attributes", {}).get("name"), None)
-      return ServerNameResult(None, f"Panel HTTP {res.status_code}")
+      result = ServerNameResult(None, f"Panel HTTP {res.status_code}")
     except Exception as e:
-      return ServerNameResult(None, f"Request error: {e}")
+      result = ServerNameResult(None, f"Request error: {e}")
+
+    if raise_on_error:
+      result.raise_if_failed(server_id=server_id)
+    return result
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
@@ -159,7 +167,12 @@ class PterodactylAdapter:
     return self._tracker.filter_state(server_id, "unknown")
 
   async def send_power_signal(
-      self, panel_url: str, api_key: str, server_id: str, signal: str
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+      signal: str,
+      raise_on_error: bool = False,
   ) -> OperationResult:
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/power"
     try:
@@ -170,9 +183,13 @@ class PterodactylAdapter:
         # Seed the tracker with the initiated signal
         self._tracker.register_signal(server_id, signal)
         return OperationResult(True, None)
-      return OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
+      result = OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
     except Exception as e:
-      return OperationResult(False, f"Request error: {e}")
+      result = OperationResult(False, f"Request error: {e}")
+
+    if raise_on_error:
+      result.raise_if_failed(server_id=server_id)
+    return result
 
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
@@ -197,7 +214,12 @@ class PterodactylAdapter:
     return OperationResult(success, err)
 
   async def get_local_build(
-      self, panel_url: str, api_key: str, server_id: str, manifest_path: str
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+      manifest_path: str,
+      raise_on_error: bool = False,
   ) -> LocalBuildResult:
     clean_manifest = manifest_path.lstrip("/")
     url = (
@@ -216,10 +238,15 @@ class PterodactylAdapter:
         match = re.search(r'"buildid"\s+"(\d+)"', res.text)
         if match:
           return LocalBuildResult(match.group(1), None)
-        return LocalBuildResult(None, "File found, but could not parse 'buildid'")
-      return LocalBuildResult(None, f"Panel HTTP {res.status_code}")
+        result = LocalBuildResult(None, "File found, but could not parse 'buildid'")
+      else:
+        result = LocalBuildResult(None, f"Panel HTTP {res.status_code}")
     except Exception as e:
-      return LocalBuildResult(None, f"Request error: {e}")
+      result = LocalBuildResult(None, f"Request error: {e}")
+
+    if raise_on_error:
+      result.raise_if_failed(server_id=server_id)
+    return result
 
   async def send_command(
       self, panel_url: str, api_key: str, server_id: str, command: str
@@ -233,7 +260,12 @@ class PterodactylAdapter:
       logger.error(f"Failed to send command to server {server_id}: {e}")
 
   async def rename_server(
-      self, panel_url: str, api_key: str, server_id: str, new_name: str
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+      new_name: str,
+      raise_on_error: bool = False,
   ) -> OperationResult:
     url = (
         f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/settings/rename"
@@ -244,9 +276,13 @@ class PterodactylAdapter:
       )
       if res.status_code in [200, 204]:
         return OperationResult(True, None)
-      return OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
+      result = OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
     except Exception as e:
-      return OperationResult(False, f"Request error: {e}")
+      result = OperationResult(False, f"Request error: {e}")
+
+    if raise_on_error:
+      result.raise_if_failed(server_id=server_id)
+    return result
 
   async def execute_graceful_restart(
       self, panel_url: str, api_key: str, server_id: str

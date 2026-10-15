@@ -1,7 +1,12 @@
 from datetime import datetime
 import logging
 from typing import List, Optional, Union
-from app.core.models import ServerModel, SettingsUpdateDTO, WebhookPreview
+from app.core.models import (
+    OperationResult,
+    ServerModel,
+    SettingsUpdateDTO,
+    WebhookPreview,
+)
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -159,19 +164,21 @@ class ServerService:
 
   async def send_power_action(
       self, identifier: Union[str, int], action: str
-  ) -> tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     valid_actions = {"start", "restart", "stop", "kill"}
     if action not in valid_actions:
-      return False, f"Invalid power action '{action}'."
+      return OperationResult(False, f"Invalid power action '{action}'.")
 
     cfg = self.repo.load()
     idx = self.find_server_index(cfg.servers, identifier)
     if idx is None:
-      return False, "Server index out of range."
+      return OperationResult(False, "Server index out of range.")
 
     server = cfg.servers[idx]
     if not cfg.panel_url or not cfg.api_key or not server.server_id:
-      return False, "Server ID or Panel API Key configuration is incomplete."
+      return OperationResult(
+          False, "Server ID or Panel API Key configuration is incomplete."
+      )
 
     # Restart, stop, or kill cancels any pending update countdown
     if action in ("restart", "stop", "kill"):

@@ -368,6 +368,75 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     self.assertEqual(res.status_code, 200)
     self.app.state.server_service.simulate_build_update.assert_called_once_with("srv-beta", "777777")
 
+  def test_power_action_route_invalid_action_bubbles_error(self):
+    from app.core.models import OperationResult
+
+    self.app.state.server_service.find_server_index.return_value = 1
+    self.app.state.server_service.send_power_action = AsyncMock(
+        return_value=OperationResult(False, "Invalid power action 'kaboom'.")
+    )
+    res = self.client.post("/api/servers/srv-beta/power/kaboom")
+    self.assertEqual(res.status_code, 400)
+    data = res.json()
+    self.assertEqual(data.get("status"), "error")
+    self.assertEqual(data.get("error"), "InvalidPowerActionError")
+    self.assertIn("Invalid power action 'kaboom'", data.get("message", ""))
+
+  def test_power_action_route_failure_bubbles_pterodactyl_error(self):
+    from app.core.models import OperationResult
+
+    self.app.state.server_service.send_power_action = AsyncMock(
+        return_value=OperationResult(False, "Panel HTTP 500: Node offline")
+    )
+    res = self.client.post("/api/servers/srv-beta/power/restart")
+    self.assertEqual(res.status_code, 500)
+    data = res.json()
+    self.assertEqual(data.get("status"), "error")
+    self.assertEqual(data.get("error"), "PterodactylApiError")
+    self.assertIn("Panel HTTP 500", data.get("message", ""))
+
+  def test_simulate_build_failure_bubbles_simulation_error(self):
+    self.app.state.server_service.simulate_build_update.return_value = (
+        False,
+        "Failed to simulate build update: Target server missing",
+        "srv-nonexistent",
+    )
+    res = self.client.post(
+        "/api/test/simulate-build",
+        json={"server_id": "srv-nonexistent", "build_id": "111222"},
+    )
+    self.assertEqual(res.status_code, 400)
+    data = res.json()
+    self.assertEqual(data.get("status"), "error")
+    self.assertEqual(data.get("error"), "SimulationError")
+    self.assertIn("Target server missing", data.get("message", ""))
+
+  def test_rename_server_empty_name_raises_configuration_error(self):
+    self.app.state.server_service.find_server_index.return_value = 1
+    res = self.client.post(
+        "/rename-server/srv-beta",
+        data={"srv_name_srv-beta": "   "},
+    )
+    self.assertEqual(res.status_code, 400)
+    data = res.json()
+    self.assertEqual(data.get("status"), "error")
+    self.assertEqual(data.get("error"), "ConfigurationError")
+    self.assertIn("Server name cannot be empty", data.get("message", ""))
+
+  def test_rename_server_not_found_raises_server_not_found_error(self):
+    self.app.state.server_service.find_server_index.return_value = None
+    res = self.client.post(
+        "/rename-server/srv-unknown",
+        data={"srv_name_srv-unknown": "New Name"},
+    )
+    self.assertEqual(res.status_code, 404)
+    data = res.json()
+    self.assertEqual(data.get("status"), "error")
+    self.assertEqual(data.get("error"), "ServerNotFoundError")
+    self.assertIn("srv-unknown", data.get("message", ""))
+
+
 
 if __name__ == "__main__":
   unittest.main()
+

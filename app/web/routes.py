@@ -1,6 +1,14 @@
 from typing import Optional
 from app.adapters.a2s import A2SAdapter
 from app.core.config import APP_VERSION, COMMIT_CODE
+from app.core.exceptions import (
+    ConfigurationError,
+    DomainError,
+    InvalidPowerActionError,
+    PterodactylApiError,
+    ServerNotFoundError,
+    SimulationError,
+)
 from app.core.protocols import (
     A2SGateway,
     CallTrackerProtocol,
@@ -170,10 +178,7 @@ async def simulate_build(
       server_ident, build_id
   )
   if not success:
-    return JSONResponse(
-        {"status": "error", "message": err or "Simulation failed"},
-        status_code=400,
-    )
+    raise SimulationError(err or "Simulation failed")
 
   orchestrator.clear_restarted_build(target_server_id)
   await orchestrator.run_update_check(target_server_id=target_server_id)
@@ -200,11 +205,13 @@ async def server_power_action(
   idx = service.find_server_index(cfg.servers, server_id)
   target_id = cfg.servers[idx].server_id if idx is not None else server_id
   orchestrator.clear_restarted_build(target_id)
-  success, err = await service.send_power_action(server_id, action)
-  if not success:
-    return JSONResponse(
-        {"status": "error", "message": err or "Action failed"}, status_code=400
-    )
+  result = await service.send_power_action(server_id, action)
+  if hasattr(result, "raise_if_failed"):
+    result.raise_if_failed(server_id=target_id)
+  elif isinstance(result, tuple) and not result[0]:
+    err = result[1] if len(result) > 1 else None
+    raise PterodactylApiError(err or "Power action failed", status_code=400, server_id=target_id)
+
   return JSONResponse(
       {
           "status": "ok",
@@ -266,19 +273,31 @@ async def rename_server(
   servers = repo.load().servers
   settings = await SettingsFormData.from_form(raw_form, servers)
   idx = service.find_server_index(servers, server_id)
+  if idx is None:
+    raise ServerNotFoundError(server_id)
+
   new_name = (
       raw_form.get(f"srv_name_{server_id}")
       or (raw_form.get(f"srv_name_{idx}") if idx is not None else None)
       or ""
   ).strip()
+  if not new_name:
+    raise ConfigurationError("Server name cannot be empty.")
+
   await service.rename_server(server_id, new_name, settings)
   return RedirectResponse(url="/?toast=renamed", status_code=303)
 
 
 @router.post("/test-webhook/{server_id}")
 async def test_webhook(
-    server_id: str, service: ServerService = Depends(get_service)
+    server_id: str,
+    service: ServerService = Depends(get_service),
+    repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
+  servers = repo.load().servers
+  if service.find_server_index(servers, server_id) is None:
+    raise ServerNotFoundError(server_id)
+
   await service.test_webhook(server_id)
   return RedirectResponse(url="/", status_code=303)
 

@@ -154,7 +154,11 @@ async def domain_error_handler(request: Request, exc: DomainError):
   status_code = getattr(exc, "status_code", None) or 400
   return JSONResponse(
       status_code=status_code,
-      content={"error": exc.__class__.__name__, "message": str(exc)},
+      content={
+          "status": "error",
+          "error": exc.__class__.__name__,
+          "message": str(exc),
+      },
   )
 
 if __name__ == "__main__":

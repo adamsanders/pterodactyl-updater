@@ -1,4 +1,10 @@
 from typing import List, NamedTuple, Optional
+from app.core.exceptions import (
+    DomainError,
+    InvalidPowerActionError,
+    PterodactylApiError,
+    ServerNotFoundError,
+)
 from pydantic import BaseModel, Field
 
 
@@ -19,17 +25,94 @@ class LocalBuildResult(NamedTuple):
   build_id: Optional[str] = None
   error: Optional[str] = None
 
+  def raise_if_failed(
+      self,
+      exc_cls: Optional[type[DomainError]] = None,
+      server_id: Optional[str] = None,
+  ) -> str:
+    if self.error or not self.build_id:
+      err_msg = self.error or "Manifest build ID could not be resolved"
+      target_cls = exc_cls or PterodactylApiError
+      sc = 400
+      if "Panel HTTP " in err_msg:
+        try:
+          sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
+        except Exception:
+          sc = 400
+      if issubclass(target_cls, PterodactylApiError):
+        raise target_cls(err_msg, status_code=sc, server_id=server_id)
+      raise target_cls(err_msg)
+    return self.build_id
+
 
 class ServerNameResult(NamedTuple):
   """Result of fetching server name from Pterodactyl API."""
   name: Optional[str] = None
   error: Optional[str] = None
 
+  def raise_if_failed(
+      self,
+      exc_cls: Optional[type[DomainError]] = None,
+      server_id: Optional[str] = None,
+  ) -> str:
+    if self.error or not self.name:
+      err_msg = self.error or "Server name could not be resolved"
+      target_cls = exc_cls or PterodactylApiError
+      sc = 400
+      if "Panel HTTP " in err_msg:
+        try:
+          sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
+        except Exception:
+          sc = 400
+      if issubclass(target_cls, PterodactylApiError):
+        raise target_cls(err_msg, status_code=sc, server_id=server_id)
+      raise target_cls(err_msg)
+    return self.name
+
 
 class OperationResult(NamedTuple):
   """General result for remote state mutations and commands."""
   success: bool
   error: Optional[str] = None
+
+  def __bool__(self) -> bool:
+    return self.success
+
+  def raise_if_failed(
+      self,
+      exc_cls: Optional[type[DomainError]] = None,
+      status_code: Optional[int] = None,
+      server_id: Optional[str] = None,
+  ) -> "OperationResult":
+    """Raises a DomainError if the operation did not succeed."""
+    if not self.success:
+      err_msg = self.error or "Operation failed"
+      if exc_cls is not None:
+        if issubclass(exc_cls, PterodactylApiError):
+          sc = status_code
+          if sc is None and "Panel HTTP " in err_msg:
+            try:
+              sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
+            except Exception:
+              sc = 400
+          raise exc_cls(err_msg, status_code=sc or 400, server_id=server_id)
+        raise exc_cls(err_msg)
+
+      # Automatic classification
+      if "Invalid power action" in err_msg:
+        action = err_msg.split("'")[1] if "'" in err_msg else err_msg
+        raise InvalidPowerActionError(action, status_code=status_code or 400)
+      elif "out of range" in err_msg or "not found" in err_msg.lower():
+        raise ServerNotFoundError(server_id or "unknown", status_code=status_code or 404)
+      else:
+        sc = status_code
+        if sc is None and "Panel HTTP " in err_msg:
+          try:
+            sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
+          except Exception:
+            sc = 400
+        raise PterodactylApiError(err_msg, status_code=sc or 400, server_id=server_id)
+    return self
 
 
 class ServerRuntimeState(BaseModel):

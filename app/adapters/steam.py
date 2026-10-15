@@ -4,6 +4,7 @@ import logging
 import re
 from typing import Optional, Tuple
 from app.core.config import resolve_game_appid
+from app.core.exceptions import SteamApiError
 import httpx
 
 logger = logging.getLogger("updater.steam")
@@ -20,22 +21,45 @@ class SteamAdapter:
     }
 
   async def get_latest_build(
-        self, app_id: str, server_id: Optional[str] = None
-    ) -> Optional[str]:
-      url = f"https://api.steamcmd.net/v1/info/{app_id}"
-      try:
-        res = await self._client.get(
-            url, headers={"Cache-Control": "no-cache"}
+      self,
+      app_id: str,
+      server_id: Optional[str] = None,
+      raise_on_error: bool = False,
+  ) -> Optional[str]:
+    url = f"https://api.steamcmd.net/v1/info/{app_id}"
+    try:
+      res = await self._client.get(
+          url, headers={"Cache-Control": "no-cache"}
+      )
+      if res.status_code == 200:
+        data = res.json()
+        build_id = (
+            data.get("data", {})
+            .get(app_id, {})
+            .get("depots", {})
+            .get("branches", {})
+            .get("public", {})
+            .get("buildid")
         )
-        if res.status_code == 200:
-          return str(
-              res.json()["data"][app_id]["depots"]["branches"]["public"][
-                  "buildid"
-              ]
+        if build_id:
+          return str(build_id)
+        if raise_on_error:
+          raise SteamApiError(
+              f"No public buildid found for AppID {app_id}", app_id=app_id
           )
-      except Exception as e:
-        logger.error(f"Failed connecting to SteamCMD API for App {app_id}: {e}")
-      return None
+      elif raise_on_error:
+        raise SteamApiError(
+            f"SteamCMD API returned HTTP {res.status_code}",
+            app_id=app_id,
+            status_code=res.status_code,
+        )
+    except SteamApiError:
+      raise
+    except Exception as e:
+      logger.error(f"Failed connecting to SteamCMD API for App {app_id}: {e}")
+      if raise_on_error:
+        raise SteamApiError(f"SteamCMD connection error: {e}", app_id=app_id)
+    return None
 
   def _clean_content(self, text: str) -> Tuple[str, Optional[str]]:
     image_url = None
@@ -129,7 +153,9 @@ class SteamAdapter:
     cleaned = "\n".join([line.strip() for line in text.split("\n")])
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip(), image_url
 
-  async def fetch_patchnotes(self, appid: int | str) -> Optional[dict]:
+  async def fetch_patchnotes(
+      self, appid: int | str, raise_on_error: bool = False
+  ) -> Optional[dict]:
     if not appid:
       return None
 
@@ -168,8 +194,18 @@ class SteamAdapter:
           if image_url:
             embed["image"] = {"url": image_url}
           return embed
+      elif raise_on_error:
+        raise SteamApiError(
+            f"Steam news API returned HTTP {resp.status_code}",
+            app_id=str(appid),
+            status_code=resp.status_code,
+        )
+    except SteamApiError:
+      raise
     except Exception as e:
       logger.warning(
           f"Could not fetch Steam news for AppID {game_appid}: {e}"
       )
+      if raise_on_error:
+        raise SteamApiError(f"Steam news fetch failed: {e}", app_id=str(appid))
     return None
