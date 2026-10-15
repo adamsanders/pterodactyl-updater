@@ -1,6 +1,14 @@
 import asyncio
 from typing import Optional, Protocol, Tuple
-from app.core.models import AppConfigModel, ServerModel
+from app.core.models import (
+    AppConfigModel,
+    LocalBuildResult,
+    OperationResult,
+    PlayerMetrics,
+    ServerAllocation,
+    ServerModel,
+    ServerNameResult,
+)
 
 
 class ConfigRepositoryProtocol(Protocol):
@@ -35,7 +43,7 @@ class PterodactylGateway(Protocol):
 
   async def get_server_name(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[Optional[str], Optional[str]]:
+  ) -> ServerNameResult:
     ...
 
   async def get_power_state(
@@ -54,12 +62,12 @@ class PterodactylGateway(Protocol):
 
   async def get_server_allocation(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[Optional[str], Optional[int]]:
+  ) -> ServerAllocation:
     ...
 
   async def get_local_build(
       self, panel_url: str, api_key: str, server_id: str, manifest_path: str
-  ) -> Tuple[Optional[str], Optional[str]]:
+  ) -> LocalBuildResult:
     ...
 
   async def send_command(
@@ -69,17 +77,17 @@ class PterodactylGateway(Protocol):
 
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     ...
 
   async def send_power_signal(
       self, panel_url: str, api_key: str, server_id: str, signal: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     ...
 
   async def rename_server(
       self, panel_url: str, api_key: str, server_id: str, new_name: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     ...
 
   async def execute_graceful_restart(
@@ -103,7 +111,7 @@ class A2SGateway(Protocol):
 
   async def get_player_count(
       self, host: str, port: int
-  ) -> Tuple[Optional[int], Optional[int]]:
+  ) -> PlayerMetrics:
     ...
 
 

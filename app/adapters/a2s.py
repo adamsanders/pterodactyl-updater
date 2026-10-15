@@ -3,6 +3,7 @@ import logging
 import time
 from typing import Optional, Tuple
 from app.core.config import TIMING_CONFIG
+from app.core.models import PlayerMetrics
 from app.core.protocols import CallTrackerProtocol
 
 logger = logging.getLogger("updater.a2s")
@@ -80,15 +81,15 @@ class A2SAdapter:
 
   async def get_player_count(
       self, host: str, port: int
-  ) -> Tuple[Optional[int], Optional[int]]:
+  ) -> PlayerMetrics:
     if not host or not port or port <= 0:
-      return None, None
+      return PlayerMetrics(None, None)
 
     cache_key = f"{host}:{port}"
     now = time.time()
     cached = self._cache.get(cache_key)
     if cached and cached["expires"] > now:
-      return cached["players"], cached["max_players"]
+      return PlayerMetrics(cached["players"], cached["max_players"])
 
     start_time = time.time()
     loop = asyncio.get_running_loop()
@@ -105,7 +106,7 @@ class A2SAdapter:
             duration_ms=(time.time() - start_time) * 1000,
             details=f"{host}:{port}",
         )
-      return None, None
+      return PlayerMetrics(None, None)
 
     try:
       transport.sendto(A2S_INFO_REQUEST)
@@ -137,7 +138,7 @@ class A2SAdapter:
               duration_ms=(time.time() - start_time) * 1000,
               details=f"{host}:{port} ({players}/{max_players} players)",
           )
-        return players, max_players
+        return PlayerMetrics(players, max_players)
     except Exception:
       self._cache[cache_key] = {
           "players": None,
@@ -155,4 +156,4 @@ class A2SAdapter:
     finally:
       transport.close()
 
-    return None, None
+    return PlayerMetrics(None, None)

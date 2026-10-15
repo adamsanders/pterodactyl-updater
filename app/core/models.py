@@ -1,5 +1,35 @@
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 from pydantic import BaseModel, Field
+
+
+class ServerAllocation(NamedTuple):
+  """Network allocation containing host IP and connection port."""
+  ip: Optional[str] = None
+  port: Optional[int] = None
+
+
+class PlayerMetrics(NamedTuple):
+  """Real-time player capacity telemetry queried via Steam A2S protocol."""
+  current: Optional[int] = None
+  max: Optional[int] = None
+
+
+class LocalBuildResult(NamedTuple):
+  """Result of reading game server build ID from local disk manifest."""
+  build_id: Optional[str] = None
+  error: Optional[str] = None
+
+
+class ServerNameResult(NamedTuple):
+  """Result of fetching server name from Pterodactyl API."""
+  name: Optional[str] = None
+  error: Optional[str] = None
+
+
+class OperationResult(NamedTuple):
+  """General result for remote state mutations and commands."""
+  success: bool
+  error: Optional[str] = None
 
 
 class ServerModel(BaseModel):

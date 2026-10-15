@@ -17,9 +17,11 @@ from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
 from app.services.telemetry import CallTracker
 from app.services.updater import UpdateOrchestrator
+from app.core.exceptions import DomainError
 from app.web.filters import discord_markdown
 from app.web.routes import router as web_router
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import httpx
 
 logging.basicConfig(
@@ -134,6 +136,18 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="Pterodactyl Multi-Server Monitor", version=APP_VERSION, lifespan=lifespan)
 app.include_router(web_router)
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(request: Request, exc: DomainError):
+  logger.error(
+      f"Domain error processing {request.method} {request.url.path}: {exc}"
+  )
+  status_code = getattr(exc, "status_code", None) or 400
+  return JSONResponse(
+      status_code=status_code,
+      content={"error": exc.__class__.__name__, "message": str(exc)},
+  )
 
 if __name__ == "__main__":
   import uvicorn

@@ -3,9 +3,17 @@ import logging
 import re
 import time
 from typing import Optional, Tuple
-from app.adapters.power_tracker import PowerStateTracker
 from urllib.parse import urlparse
 import httpx
+
+from app.adapters.power_tracker import PowerStateTracker
+from app.core.exceptions import PterodactylApiError
+from app.core.models import (
+    LocalBuildResult,
+    OperationResult,
+    ServerAllocation,
+    ServerNameResult,
+)
 
 logger = logging.getLogger("updater.pterodactyl")
 
@@ -49,7 +57,7 @@ class PterodactylAdapter:
 
   async def get_server_allocation(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[Optional[str], Optional[int]]:
+  ) -> ServerAllocation:
     """Extracts routable internal IP/alias and allocation port with local caching."""
     now = time.time()
     if not hasattr(self, "_allocations_cache"):
@@ -57,7 +65,7 @@ class PterodactylAdapter:
 
     cached = self._allocations_cache.get(server_id)
     if cached and cached["expires"] > now:
-      return cached["ip"], cached["port"]
+      return ServerAllocation(cached["ip"], cached["port"])
 
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}?include=allocations"
     try:
@@ -109,22 +117,22 @@ class PterodactylAdapter:
               "port": port,
               "expires": now + 60.0,
           }
-          return resolved_ip, port
+          return ServerAllocation(resolved_ip, port)
     except Exception as e:
       logger.warning(f"Failed to fetch allocation for {server_id}: {e}")
-    return None, None
+    return ServerAllocation(None, None)
 
   async def get_server_name(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[Optional[str], Optional[str]]:
+  ) -> ServerNameResult:
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}"
     try:
       res = await self._client.get(url, headers=self._headers(api_key))
       if res.status_code == 200:
-        return res.json().get("attributes", {}).get("name"), None
-      return None, f"Panel HTTP {res.status_code}"
+        return ServerNameResult(res.json().get("attributes", {}).get("name"), None)
+      return ServerNameResult(None, f"Panel HTTP {res.status_code}")
     except Exception as e:
-      return None, f"Request error: {e}"
+      return ServerNameResult(None, f"Request error: {e}")
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
@@ -152,7 +160,7 @@ class PterodactylAdapter:
 
   async def send_power_signal(
       self, panel_url: str, api_key: str, server_id: str, signal: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/power"
     try:
       res = await self._client.post(
@@ -161,14 +169,14 @@ class PterodactylAdapter:
       if res.status_code in [200, 204]:
         # Seed the tracker with the initiated signal
         self._tracker.register_signal(server_id, signal)
-        return True, None
-      return False, f"Panel HTTP {res.status_code}: {res.text}"
+        return OperationResult(True, None)
+      return OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
     except Exception as e:
-      return False, f"Request error: {e}"
+      return OperationResult(False, f"Request error: {e}")
 
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     power_state = await self.get_power_state(panel_url, api_key, server_id)
     signal = "start" if power_state == "offline" else "restart"
     success, err = await self.send_power_signal(
@@ -186,11 +194,11 @@ class PterodactylAdapter:
       logger.error(
           f"Failed to restart server {server_id} via Pterodactyl API: {err}"
       )
-    return success, err
+    return OperationResult(success, err)
 
   async def get_local_build(
       self, panel_url: str, api_key: str, server_id: str, manifest_path: str
-  ) -> Tuple[Optional[str], Optional[str]]:
+  ) -> LocalBuildResult:
     clean_manifest = manifest_path.lstrip("/")
     url = (
         f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/files/contents"
@@ -207,11 +215,11 @@ class PterodactylAdapter:
       if res.status_code == 200:
         match = re.search(r'"buildid"\s+"(\d+)"', res.text)
         if match:
-          return match.group(1), None
-        return None, "File found, but could not parse 'buildid'"
-      return None, f"Panel HTTP {res.status_code}"
+          return LocalBuildResult(match.group(1), None)
+        return LocalBuildResult(None, "File found, but could not parse 'buildid'")
+      return LocalBuildResult(None, f"Panel HTTP {res.status_code}")
     except Exception as e:
-      return None, f"Request error: {e}"
+      return LocalBuildResult(None, f"Request error: {e}")
 
   async def send_command(
       self, panel_url: str, api_key: str, server_id: str, command: str
@@ -226,7 +234,7 @@ class PterodactylAdapter:
 
   async def rename_server(
       self, panel_url: str, api_key: str, server_id: str, new_name: str
-  ) -> Tuple[bool, Optional[str]]:
+  ) -> OperationResult:
     url = (
         f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/settings/rename"
     )
@@ -235,10 +243,10 @@ class PterodactylAdapter:
           url, json={"name": new_name}, headers=self._headers(api_key)
       )
       if res.status_code in [200, 204]:
-        return True, None
-      return False, f"Panel HTTP {res.status_code}: {res.text}"
+        return OperationResult(True, None)
+      return OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
     except Exception as e:
-      return False, f"Request error: {e}"
+      return OperationResult(False, f"Request error: {e}")
 
   async def execute_graceful_restart(
       self, panel_url: str, api_key: str, server_id: str
