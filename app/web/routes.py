@@ -235,6 +235,7 @@ async def toggle_test_mode(
     enabled = False
 
   result = service.toggle_test_mode(enabled)
+  orchestrator.clear_restarted_build()
   if not enabled:
     await orchestrator.run_update_check()
 
@@ -260,6 +261,7 @@ async def simulate_build(
         status_code=400,
     )
 
+  orchestrator.clear_restarted_build(target_server_id)
   await orchestrator.run_update_check(target_server_id=target_server_id)
   return JSONResponse({"status": "ok", "build_id": build_id})
 
@@ -277,7 +279,12 @@ async def server_power_action(
     server_idx: int,
     action: str,
     service: ServerService = Depends(get_service),
+    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
+    repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
+  cfg = repo.load()
+  if 0 <= server_idx < len(cfg.servers):
+    orchestrator.clear_restarted_build(cfg.servers[server_idx].server_id)
   success, err = await service.send_power_action(server_idx, action)
   if not success:
     return JSONResponse(

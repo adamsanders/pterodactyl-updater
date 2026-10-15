@@ -69,7 +69,7 @@ class PterodactylGateway(Protocol):
 
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> None:
+  ) -> Tuple[bool, Optional[str]]:
     ...
 
   async def send_power_signal(

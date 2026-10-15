@@ -37,6 +37,13 @@ class UpdateOrchestrator:
     self.preview_store = preview_store
     self.countdown = countdown
     self.simulator_store = simulator_store
+    self._restarted_builds: dict[str, str] = {}
+
+  def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
+    if server_id:
+      self._restarted_builds.pop(server_id, None)
+    else:
+      self._restarted_builds.clear()
 
   async def broadcast_warning(
       self,
@@ -83,16 +90,31 @@ class UpdateOrchestrator:
   async def delayed_restart_routine(self, server: ServerModel) -> None:
     cfg = self.repo.load()
     self.countdown.start(server.server_id, 900)
+    # Schedule: 15m left -> sleep 5m (300s) until 10m
+    #           10m left -> sleep 5m (300s) until 5m
+    #            5m left -> sleep 4m (240s) until 1m
+    #            1m left -> sleep 1m (60s)  until 0m (restart)
+    # Total elapsed sleep time = 300 + 300 + 240 + 60 = 900 seconds (15 minutes)
+    warning_schedule = [
+        (15, 5 * 60),
+        (10, 5 * 60),
+        (5, 4 * 60),
+        (1, 1 * 60),
+    ]
     try:
-      for mins in [15, 10, 5, 1]:
+      for mins, sleep_secs in warning_schedule:
         await self.broadcast_warning(
             server=server, minutes_left=mins, include_patchnotes=(mins == 15)
         )
-        sleep_secs = 5 * 60 if mins > 1 else 60
         await asyncio.sleep(sleep_secs)
 
-      logger.info(f"Triggering graceful restart sequence: {server.name}")
-      await self.ptero.execute_graceful_restart(
+      logger.info(
+          f"[{server.name}] 15-minute countdown ended. Restarting server via Pterodactyl API."
+      )
+      server.last_status = "Restarting server via Pterodactyl API..."
+      self._restarted_builds[server.server_id] = server.latest_build
+      self.countdown.stop(server.server_id)
+      await self.ptero.trigger_restart(
           cfg.panel_url, cfg.api_key, server.server_id
       )
     except asyncio.CancelledError:
@@ -109,6 +131,7 @@ class UpdateOrchestrator:
       latest_build: Optional[str],
       local_build: Optional[str],
       read_error: Optional[str],
+      power_state: str = "running",
   ) -> None:
     if latest_build:
       server.latest_build = latest_build
@@ -122,11 +145,14 @@ class UpdateOrchestrator:
     elif latest_build == local_build:
       if self.countdown.is_running(server.server_id):
         self.countdown.stop(server.server_id)
+      self._restarted_builds.pop(server.server_id, None)
       server.last_status = "Up to date"
     else:
       if self.countdown.is_running(server.server_id):
         server.last_status = "Update Available — Countdown Started"
-      elif server.auto_restart:
+      elif self._restarted_builds.get(server.server_id) == latest_build:
+        server.last_status = "Restart dispatched — waiting for build update"
+      elif server.auto_restart and power_state == "running":
         server.last_status = "Update Available — Countdown Started"
         task = asyncio.create_task(self.delayed_restart_routine(server))
         self.countdown.attach_task(server.server_id, task)
@@ -166,6 +192,7 @@ class UpdateOrchestrator:
           " countdown. Cancelling auto-restart."
       )
       self.countdown.stop(server.server_id)
+      self._restarted_builds.pop(server.server_id, None)
       server.last_status = (
           f"Manual {power_state} detected — countdown cancelled"
       )
@@ -199,11 +226,15 @@ class UpdateOrchestrator:
             " build. Aborting countdown."
         )
         self.countdown.stop(server.server_id)
+      self._restarted_builds.pop(server.server_id, None)
       server.last_status = "Up to date"
       return
 
-    # 5. Skip local manifest I/O ONLY if server is starting or stopping
-    if power_state in TRANSITIONAL_POWER_STATES:
+    # 5. Skip local manifest I/O if server is starting/stopping, or offline following update restart
+    if power_state in TRANSITIONAL_POWER_STATES or (
+        power_state == "offline"
+        and self._restarted_builds.get(server.server_id) == latest_build
+    ):
       logger.info(
           f"[{server.name}] Server is '{power_state}'. Skipping manifest I/O"
           " this cycle."
@@ -216,7 +247,9 @@ class UpdateOrchestrator:
     )
 
     # 7. Evaluate status and progression
-    await self._evaluate_build_status(server, latest_build, local_build, err)
+    await self._evaluate_build_status(
+        server, latest_build, local_build, err, power_state
+    )
 
   async def run_update_check(
       self, target_server_id: Optional[str] = None

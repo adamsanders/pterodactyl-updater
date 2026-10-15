@@ -29,13 +29,21 @@ class CountdownManager:
   def stop(self, server_id: str) -> None:
     self._targets.pop(server_id, None)
     task = self._tasks.pop(server_id, None)
-    if task and not task.done():
+    current = None
+    try:
+      current = asyncio.current_task()
+    except RuntimeError:
+      pass
+    if task and not task.done() and task is not current:
       task.cancel()
 
   def get_target(self, server_id: str) -> float:
     return self._targets.get(server_id, 0.0)
 
   def is_running(self, server_id: str) -> bool:
+    task = self._tasks.get(server_id)
+    if task and not task.done():
+      return True
     return server_id in self._targets and self._targets[server_id] > time.time()
 
   def get_remaining(self, server_id: str) -> int:

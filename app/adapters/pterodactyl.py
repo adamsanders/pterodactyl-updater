@@ -168,14 +168,25 @@ class PterodactylAdapter:
 
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> None:
+  ) -> Tuple[bool, Optional[str]]:
+    power_state = await self.get_power_state(panel_url, api_key, server_id)
+    signal = "start" if power_state == "offline" else "restart"
     success, err = await self.send_power_signal(
-        panel_url, api_key, server_id, "restart"
+        panel_url, api_key, server_id, signal
     )
+    if not success and signal == "restart":
+      success, err = await self.send_power_signal(
+          panel_url, api_key, server_id, "start"
+      )
     if success:
-      logger.info(f"Restart signal dispatched to server {server_id}.")
+      logger.info(
+          f"Power signal '{signal}' successfully dispatched to server {server_id} via Pterodactyl API."
+      )
     else:
-      logger.error(f"Failed to restart server {server_id}: {err}")
+      logger.error(
+          f"Failed to restart server {server_id} via Pterodactyl API: {err}"
+      )
+    return success, err
 
   async def get_local_build(
       self, panel_url: str, api_key: str, server_id: str, manifest_path: str
@@ -232,7 +243,4 @@ class PterodactylAdapter:
   async def execute_graceful_restart(
       self, panel_url: str, api_key: str, server_id: str
   ) -> None:
-    await self.send_command(panel_url, api_key, server_id, "save")
-    await asyncio.sleep(5)
     await self.trigger_restart(panel_url, api_key, server_id)
-    await asyncio.sleep(90)
