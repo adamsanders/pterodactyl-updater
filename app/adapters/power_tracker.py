@@ -1,5 +1,6 @@
 import time
 from typing import Dict, Optional
+from app.core.config import TIMING_CONFIG
 
 
 class PowerStateTracker:
@@ -8,19 +9,19 @@ class PowerStateTracker:
   telemetry jitter, container recycling delays, and timeout fallbacks.
   """
 
-  STARTUP_GRACE_DURATION: float = 30.0
-  MAX_STARTUP_DURATION: float = 180.0
-  MAX_STOPPING_DURATION: float = 45.0
+  STARTUP_GRACE_DURATION: float = TIMING_CONFIG.startup_grace_duration
+  MAX_STARTUP_DURATION: float = TIMING_CONFIG.max_startup_duration
+  MAX_STOPPING_DURATION: float = TIMING_CONFIG.max_stopping_duration
   # Grace period if Stop was clicked while the container was in "starting"
-  ABORTED_START_STOP_GRACE: float = 8.0
-  RESTART_LOCKOUT_DURATION: float = 8.0
+  ABORTED_START_STOP_GRACE: float = TIMING_CONFIG.aborted_start_stop_grace
+  RESTART_LOCKOUT_DURATION: float = TIMING_CONFIG.restart_lockout_duration
   OFFLINE_CONFIRMATION_THRESHOLD: int = 3
 
   # Tiered Cache TTLs:
   # Transitional states require fast updates (1.0) for UI responsiveness
-  TRANSITIONAL_CACHE_TTL: float = 1.0
+  TRANSITIONAL_CACHE_TTL: float = TIMING_CONFIG.power_transitional_ttl
   # Steady states cache longer (15s) to avoid spamming Wings
-  STEADY_CACHE_TTL: float = 15.0
+  STEADY_CACHE_TTL: float = TIMING_CONFIG.power_steady_ttl
 
   def __init__(self):
     self._states: Dict[str, dict] = {}

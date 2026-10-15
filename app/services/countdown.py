@@ -1,6 +1,7 @@
 import asyncio
 import time
 from typing import Dict, Optional
+from app.core.config import TIMING_CONFIG
 
 
 class CountdownManager:
@@ -13,7 +14,7 @@ class CountdownManager:
   def start(
       self,
       server_id: str,
-      duration_seconds: int = 900,
+      duration_seconds: int = TIMING_CONFIG.total_duration_seconds(),
       task: Optional[asyncio.Task] = None,
   ) -> None:
     self._targets[server_id] = time.time() + duration_seconds

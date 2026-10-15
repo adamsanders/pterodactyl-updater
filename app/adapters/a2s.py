@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from typing import Optional, Tuple
+from app.core.config import TIMING_CONFIG
 from app.core.protocols import CallTrackerProtocol
 
 logger = logging.getLogger("updater.a2s")
@@ -33,8 +34,8 @@ class A2SAdapter:
 
   def __init__(
       self,
-      cache_ttl: float = 30.0,
-      query_timeout: float = 1.5,
+      cache_ttl: float = TIMING_CONFIG.a2s_cache_ttl,
+      query_timeout: float = TIMING_CONFIG.a2s_timeout,
       call_tracker: Optional[CallTrackerProtocol] = None,
   ):
     self.cache_ttl = cache_ttl

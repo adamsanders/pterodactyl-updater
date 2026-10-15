@@ -1,11 +1,76 @@
+from dataclasses import dataclass
 import os
+from typing import List, Tuple
 
 CONFIG_PATH = os.getenv(
     "CONFIG_PATH",
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.3.1")
+APP_VERSION = os.getenv("APP_VERSION", "1.4.0")
+
+
+@dataclass(frozen=True)
+class TimingConfig:
+    """Centralized domain constants for timeouts, cache TTLs, and countdown routines."""
+
+    # HTTP and Network Timeouts (seconds)
+    http_timeout: float = 10.0
+    a2s_timeout: float = 1.5
+    a2s_cache_ttl: float = 30.0
+
+    # Power Tracker Cache TTLs (seconds)
+    power_transitional_ttl: float = 1.0
+    power_steady_ttl: float = 15.0
+
+    # Power State Filter Durations (seconds)
+    startup_grace_duration: float = 30.0
+    max_startup_duration: float = 180.0
+    max_stopping_duration: float = 45.0
+    aborted_start_stop_grace: float = 8.0
+    restart_lockout_duration: float = 8.0
+
+    # Client Polling Intervals (milliseconds)
+    client_steady_poll_ms: int = 4000
+    client_fast_poll_ms: int = 1500
+    client_background_poll_ms: int = 8000
+
+    # Default Countdown & Warning Schedule (minutes)
+    default_countdown_stages: Tuple[int, ...] = (15, 10, 5, 1)
+
+    @classmethod
+    def compute_warning_schedule(
+        cls, stages: Tuple[int, ...] = (15, 10, 5, 1)
+    ) -> List[Tuple[int, int]]:
+        """Calculates (minutes_remaining, sleep_seconds) pairs from descending stage list.
+
+        Example for (15, 10, 5, 1):
+          - 15m left -> sleep (15-10)*60 = 300s
+          - 10m left -> sleep (10-5)*60  = 300s
+          -  5m left -> sleep (5-1)*60   = 240s
+          -  1m left -> sleep (1-0)*60   = 60s
+          Total sleep = 900s (15 minutes).
+        """
+        if not stages:
+            return []
+        sorted_stages = sorted(stages, reverse=True)
+        schedule = []
+        for i, current_min in enumerate(sorted_stages):
+            next_min = sorted_stages[i + 1] if i + 1 < len(sorted_stages) else 0
+            sleep_secs = (current_min - next_min) * 60
+            schedule.append((current_min, sleep_secs))
+        return schedule
+
+    @classmethod
+    def total_duration_seconds(cls, stages: Tuple[int, ...] = (15, 10, 5, 1)) -> int:
+        """Returns total countdown duration in seconds from the earliest warning stage."""
+        if not stages:
+            return 0
+        return max(stages) * 60
+
+
+TIMING_CONFIG = TimingConfig()
+
 
 
 def resolve_commit_code() -> str:

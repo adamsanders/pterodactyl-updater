@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 import logging
 from typing import Optional
+from app.core.config import TIMING_CONFIG
 from app.core.models import ServerModel, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -89,27 +90,19 @@ class UpdateOrchestrator:
 
   async def delayed_restart_routine(self, server: ServerModel) -> None:
     cfg = self.repo.load()
-    self.countdown.start(server.server_id, 900)
-    # Schedule: 15m left -> sleep 5m (300s) until 10m
-    #           10m left -> sleep 5m (300s) until 5m
-    #            5m left -> sleep 4m (240s) until 1m
-    #            1m left -> sleep 1m (60s)  until 0m (restart)
-    # Total elapsed sleep time = 300 + 300 + 240 + 60 = 900 seconds (15 minutes)
-    warning_schedule = [
-        (15, 5 * 60),
-        (10, 5 * 60),
-        (5, 4 * 60),
-        (1, 1 * 60),
-    ]
+    total_seconds = TIMING_CONFIG.total_duration_seconds()
+    self.countdown.start(server.server_id, total_seconds)
+    warning_schedule = TIMING_CONFIG.compute_warning_schedule()
+    first_min = warning_schedule[0][0] if warning_schedule else 15
     try:
       for mins, sleep_secs in warning_schedule:
         await self.broadcast_warning(
-            server=server, minutes_left=mins, include_patchnotes=(mins == 15)
+            server=server, minutes_left=mins, include_patchnotes=(mins == first_min)
         )
         await asyncio.sleep(sleep_secs)
 
       logger.info(
-          f"[{server.name}] 15-minute countdown ended. Restarting server via Pterodactyl API."
+          f"[{server.name}] {total_seconds // 60}-minute countdown ended. Restarting server via Pterodactyl API."
       )
       server.last_status = "Restarting server via Pterodactyl API..."
       self._restarted_builds[server.server_id] = server.latest_build
