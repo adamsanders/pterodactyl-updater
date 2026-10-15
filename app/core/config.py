@@ -5,6 +5,8 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
+APP_VERSION = os.getenv("APP_VERSION", "1.1.0")
+
 SERVER_TO_GAME_APPID: dict[str, str] = {
     "896660": "892970",  # Valheim Dedicated Server -> Valheim
     "2394010": "1623730",  # Palworld Dedicated Server -> Palworld

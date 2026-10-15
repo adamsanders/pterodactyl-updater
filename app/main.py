@@ -8,6 +8,7 @@ from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.repository import ConfigRepository
 from app.adapters.simulated_steam import SimulatedSteamAdapter
 from app.adapters.steam import SteamAdapter
+from app.core.config import APP_VERSION
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.countdown import CountdownManager
 from app.services.preview_store import WebhookPreviewStore
@@ -109,7 +110,7 @@ async def lifespan(application: FastAPI):
     logger.info("Background updater loop gracefully stopped.")
 
 
-app = FastAPI(title="Pterodactyl Multi-Server Monitor", lifespan=lifespan)
+app = FastAPI(title="Pterodactyl Multi-Server Monitor", version=APP_VERSION, lifespan=lifespan)
 app.include_router(web_router)
 
 if __name__ == "__main__":
