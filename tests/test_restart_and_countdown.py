@@ -126,7 +126,10 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
   def setUp(self):
     self.repo = MagicMock()
     self.ptero = AsyncMock()
+    self.ptero.consume_startup_transition = MagicMock(return_value=False)
+    self.ptero.invalidate_power_cache = MagicMock()
     self.steam = AsyncMock()
+
     self.discord = AsyncMock()
     self.preview_store = WebhookPreviewStore()
     self.countdown = CountdownManager()
@@ -306,6 +309,36 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
     # Should skip get_local_build because server is offline following update restart
     self.ptero.get_local_build.assert_not_called()
 
+  async def test_monitor_server_lifecycle_cancels_countdown_on_external_stop(self):
+    server = ServerModel(name="Palworld", server_id="srv-pal", current_build="100", latest_build="200")
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[server])
+    self.repo.load.return_value = cfg
+    self.countdown.start("srv-pal", duration_seconds=600)
+    self.orchestrator._restarted_builds["srv-pal"] = "200"
+
+    self.ptero.consume_startup_transition.return_value = False
+    self.ptero.get_power_state.return_value = "offline"
+
+    await self.orchestrator.monitor_server_lifecycle()
+
+    self.assertFalse(self.countdown.is_running("srv-pal"))
+    self.assertNotIn("srv-pal", self.orchestrator._restarted_builds)
+    self.assertIn("Manual offline detected", server.last_status)
+    self.repo.save.assert_called_once_with(cfg)
+
+  async def test_monitor_server_lifecycle_triggers_inspection_on_startup_transition(self):
+    server = ServerModel(name="Palworld", server_id="srv-pal", current_build="100", latest_build="200")
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[server])
+    self.repo.load.return_value = cfg
+
+    self.ptero.consume_startup_transition.return_value = True
+    self.orchestrator.run_update_check = AsyncMock()
+
+    await self.orchestrator.monitor_server_lifecycle()
+    await asyncio.sleep(0.01)
+    self.orchestrator.run_update_check.assert_called_once_with(target_server_id="srv-pal")
+
 
 if __name__ == "__main__":
   unittest.main()
+

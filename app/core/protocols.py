@@ -186,3 +186,14 @@ class CountdownManagerProtocol(Protocol):
 
   def get_remaining(self, server_id: str) -> int:
     ...
+
+
+class UpdateOrchestratorProtocol(Protocol):
+
+  def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
+    ...
+
+  async def run_update_check(
+      self, target_server_id: Optional[str] = None
+  ) -> None:
+    ...

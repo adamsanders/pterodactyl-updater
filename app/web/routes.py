@@ -1,5 +1,4 @@
 from typing import Optional
-from app.adapters.a2s import A2SAdapter
 from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.exceptions import (
     ConfigurationError,
@@ -10,18 +9,26 @@ from app.core.exceptions import (
     SimulationError,
 )
 from app.core.protocols import (
-    A2SGateway,
     CallTrackerProtocol,
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
-    PterodactylGateway,
     RuntimeStateStoreProtocol,
 )
 from app.services.preview_store import WebhookPreviewStore
 from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
-from app.services.updater import UpdateOrchestrator
-from app.web.filters import discord_markdown
+from app.web.dependencies import (
+    get_a2s,
+    get_call_tracker,
+    get_countdown,
+    get_orchestrator,
+    get_preview_store,
+    get_ptero,
+    get_repo,
+    get_runtime_state,
+    get_service,
+    get_status_service,
+)
 from app.web.schemas import SettingsFormData
 from app.web.templating import templates
 from fastapi import APIRouter, Depends, Request
@@ -29,59 +36,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 router = APIRouter()
 
-
-def get_service(request: Request) -> ServerService:
-  return request.app.state.server_service
-
-
-def get_orchestrator(request: Request) -> UpdateOrchestrator:
-  return request.app.state.orchestrator
-
-
-def get_repo(request: Request) -> ConfigRepositoryProtocol:
-  return request.app.state.repo
-
-
-def get_ptero(request: Request) -> PterodactylGateway:
-  return request.app.state.ptero
-
-
-def get_countdown(request: Request) -> CountdownManagerProtocol:
-  return request.app.state.countdown
-
-
-def get_preview_store(request: Request) -> WebhookPreviewStore:
-  return request.app.state.preview_store
-
-
-def get_a2s(request: Request) -> A2SGateway:
-  if not hasattr(request.app.state, "a2s"):
-    request.app.state.a2s = A2SAdapter()
-  return request.app.state.a2s
-
-
-def get_call_tracker(request: Request) -> CallTrackerProtocol:
-  return request.app.state.call_tracker
-
-
-def get_runtime_state(request: Request) -> Optional[RuntimeStateStoreProtocol]:
-  return getattr(request.app.state, "runtime_state", None)
-
-
-def get_status_service(request: Request) -> StatusAggregationService:
-  if not hasattr(request.app.state, "status_service"):
-    request.app.state.status_service = StatusAggregationService(
-        repository=get_repo(request),
-        ptero=get_ptero(request),
-        countdown=get_countdown(request),
-        preview_store=get_preview_store(request),
-        orchestrator=get_orchestrator(request),
-        a2s=get_a2s(request),
-        call_tracker=getattr(request.app.state, "call_tracker", None),
-        markdown_formatter=discord_markdown,
-        runtime_state=get_runtime_state(request),
-    )
-  return request.app.state.status_service
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -147,18 +101,13 @@ async def get_status_api(
 async def toggle_test_mode(
     request: Request,
     service: ServerService = Depends(get_service),
-    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
 ):
   try:
     enabled = bool((await request.json()).get("enabled", False))
   except Exception:
     enabled = False
 
-  result = service.toggle_test_mode(enabled)
-  orchestrator.clear_restarted_build()
-  if not enabled:
-    await orchestrator.run_update_check()
-
+  result = await service.toggle_test_mode(enabled)
   return {"status": "ok", "test_mode": result}
 
 
@@ -166,7 +115,6 @@ async def toggle_test_mode(
 async def simulate_build(
     request: Request,
     service: ServerService = Depends(get_service),
-    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
 ):
   data = await request.json()
   server_ident = data.get("server_id")
@@ -174,14 +122,7 @@ async def simulate_build(
     server_ident = data.get("server_idx", 0)
   build_id = str(data.get("build_id", "")).strip()
 
-  success, err, target_server_id = service.simulate_build_update(
-      server_ident, build_id
-  )
-  if not success:
-    raise SimulationError(err or "Simulation failed")
-
-  orchestrator.clear_restarted_build(target_server_id)
-  await orchestrator.run_update_check(target_server_id=target_server_id)
+  await service.trigger_simulated_build(server_ident, build_id)
   return JSONResponse({"status": "ok", "build_id": build_id})
 
 
@@ -198,13 +139,11 @@ async def server_power_action(
     server_id: str,
     action: str,
     service: ServerService = Depends(get_service),
-    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   cfg = repo.load()
   idx = service.find_server_index(cfg.servers, server_id)
   target_id = cfg.servers[idx].server_id if idx is not None else server_id
-  orchestrator.clear_restarted_build(target_id)
   result = await service.send_power_action(server_id, action)
   if hasattr(result, "raise_if_failed"):
     result.raise_if_failed(server_id=target_id)
@@ -220,6 +159,7 @@ async def server_power_action(
           "server_idx": idx if idx is not None else 0,
       }
   )
+
 
 
 @router.post("/save")
@@ -305,12 +245,9 @@ async def test_webhook(
 @router.post("/check-now")
 async def check_now(
     request: Request,
-    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
-    ptero: PterodactylGateway = Depends(get_ptero),
+    service: ServerService = Depends(get_service),
 ):
-  # Invalidate cached states across all servers before running a unified update check
-  ptero.invalidate_power_cache()
-  await orchestrator.run_update_check()
+  await service.trigger_immediate_check()
   if request.headers.get("accept") == "application/json":
     return JSONResponse({"status": "ok"})
-  return RedirectResponse(url="/?toast=checked", status_code=303)
+  return RedirectResponse(url="/?toast=checked", status_code=303)

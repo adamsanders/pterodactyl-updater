@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 from typing import List, Optional, Union
+from app.core.exceptions import SimulationError
 from app.core.models import (
     OperationResult,
     ServerModel,
@@ -14,6 +15,7 @@ from app.core.protocols import (
     PterodactylGateway,
     RuntimeStateStoreProtocol,
     SteamGateway,
+    UpdateOrchestratorProtocol,
 )
 from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
@@ -35,6 +37,7 @@ class ServerService:
       discord: Optional[NotificationGateway] = None,
       preview_store: Optional[WebhookPreviewStore] = None,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
+      orchestrator: Optional[UpdateOrchestratorProtocol] = None,
   ):
     self.repo = repository
     self.ptero = ptero
@@ -42,6 +45,8 @@ class ServerService:
     self.simulator_store = simulator_store
     self.countdown = countdown
     self.runtime_state = runtime_state
+    self.orchestrator = orchestrator
+
     if announcements is not None:
       self.announcements = announcements
     else:
@@ -180,6 +185,10 @@ class ServerService:
           False, "Server ID or Panel API Key configuration is incomplete."
       )
 
+    # Invalidate orchestrator restart suppression on manual power signal
+    if self.orchestrator:
+      self.orchestrator.clear_restarted_build(server.server_id)
+
     # Restart, stop, or kill cancels any pending update countdown
     if action in ("restart", "stop", "kill"):
       if self.countdown.is_running(server.server_id):
@@ -234,20 +243,46 @@ class ServerService:
     self.simulator_store.set_simulated_build(server.server_id, new_build_id)
     return True, None, server.server_id
 
-  def toggle_test_mode(self, enabled: bool) -> bool:
-      cfg = self.repo.load()
-      cfg.test_mode = enabled
+  async def trigger_simulated_build(
+      self, identifier: Union[str, int], new_build_id: str
+  ) -> str:
+    """Coordinates simulation store configuration, build clearing, and orchestrator inspection."""
+    success, err, target_server_id = self.simulate_build_update(
+        identifier, new_build_id
+    )
+    if not success:
+      raise SimulationError(err or "Simulation failed")
+
+    if self.orchestrator and target_server_id:
+      self.orchestrator.clear_restarted_build(target_server_id)
+      await self.orchestrator.run_update_check(target_server_id=target_server_id)
+
+    return target_server_id or str(identifier)
+
+  async def toggle_test_mode(self, enabled: bool) -> bool:
+    cfg = self.repo.load()
+    cfg.test_mode = enabled
+    if not enabled:
+      self.simulator_store.clear_simulated_build()
+      # Abort any countdowns initiated during simulation
+      for srv in cfg.servers:
+        if self.countdown.is_running(srv.server_id):
+          self.countdown.stop(srv.server_id)
+          srv.last_status = "Test mode disabled — countdown cancelled"
+          if self.runtime_state:
+            self.runtime_state.update_server_state(
+                srv.server_id,
+                last_status="Test mode disabled — countdown cancelled",
+            )
+    self.repo.save(cfg)
+    if self.orchestrator:
+      self.orchestrator.clear_restarted_build()
       if not enabled:
-        self.simulator_store.clear_simulated_build()
-        # Abort any countdowns initiated during simulation
-        for srv in cfg.servers:
-          if self.countdown.is_running(srv.server_id):
-            self.countdown.stop(srv.server_id)
-            srv.last_status = "Test mode disabled — countdown cancelled"
-            if self.runtime_state:
-              self.runtime_state.update_server_state(
-                  srv.server_id,
-                  last_status="Test mode disabled — countdown cancelled",
-              )
-      self.repo.save(cfg)
-      return enabled
+        await self.orchestrator.run_update_check()
+    return enabled
+
+  async def trigger_immediate_check(self) -> None:
+    """Invalidates power cache and executes immediate fleet update check."""
+    self.ptero.invalidate_power_cache()
+    if self.orchestrator:
+      await self.orchestrator.run_update_check()

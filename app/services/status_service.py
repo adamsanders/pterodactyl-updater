@@ -27,8 +27,8 @@ class StatusAggregationService:
       ptero: PterodactylGateway,
       countdown: CountdownManagerProtocol,
       preview_store: WebhookPreviewStore,
-      orchestrator: UpdateOrchestrator,
-      a2s: A2SGateway,
+      orchestrator: Optional[Any] = None,
+      a2s: Optional[A2SGateway] = None,
       call_tracker: Optional[CallTrackerProtocol] = None,
       markdown_formatter: Optional[Callable[[str], Any]] = None,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
@@ -49,9 +49,8 @@ class StatusAggregationService:
       ext_ip: Optional[str],
       idx: int,
       srv: ServerModel,
-  ) -> tuple[ServerStatusDTO, bool]:
-    """Queries telemetry, allocation, and power state for an individual game server."""
-    dirty = False
+  ) -> ServerStatusDTO:
+    """Pure query: reads telemetry, allocation, and power state for an individual game server."""
     power = "unknown"
     if cfg.panel_url and cfg.api_key and srv.server_id:
       power = await self.ptero.get_power_state(
@@ -74,27 +73,6 @@ class StatusAggregationService:
       if st.last_status != "Idle":
         srv_status = st.last_status
 
-    # Real-time countdown cancellation if power state changed externally
-    if self.countdown.is_running(srv.server_id) and power in (
-        "starting",
-        "stopping",
-        "offline",
-    ):
-      self.countdown.stop(srv.server_id)
-      srv_status = f"Manual {power} detected — countdown cancelled"
-      srv.last_status = srv_status
-      if self.runtime_state and srv.server_id:
-        self.runtime_state.update_server_state(
-            srv.server_id, last_status=srv_status
-        )
-      dirty = True
-
-    # Immediate build inspection the instant a server finishes booting into Online
-    if self.ptero.consume_startup_transition(srv.server_id):
-      asyncio.create_task(
-          self.orchestrator.run_update_check(target_server_id=srv.server_id)
-      )
-
     is_upd = (power != "offline") and (
         self.countdown.is_running(srv.server_id)
         or (
@@ -115,12 +93,12 @@ class StatusAggregationService:
     )
 
     player_count, max_players = None, None
-    if power == "running" and ext_ip and query_port:
+    if self.a2s and power == "running" and ext_ip and query_port:
       player_count, max_players = await self.a2s.get_player_count(
           ext_ip, query_port
       )
 
-    dto = ServerStatusDTO(
+    return ServerStatusDTO(
         idx=idx,
         server_id=srv.server_id,
         name=srv.name,
@@ -138,10 +116,9 @@ class StatusAggregationService:
         player_count=player_count,
         max_players=max_players,
     )
-    return dto, dirty
 
   async def get_status_snapshot(self) -> dict[str, Any]:
-    """Collates full fleet telemetry, executes concurrent server queries, and builds API payload."""
+    """Collates full fleet telemetry as a pure, side-effect free read query."""
     cfg = self.repository.load()
 
     if self.call_tracker:
@@ -155,23 +132,16 @@ class StatusAggregationService:
 
     ext_ip = await self.ptero.get_external_ip()
 
-    # Query all servers concurrently in parallel
-    results = await asyncio.gather(
+    # Query all servers concurrently in parallel without side effects
+    dtos = await asyncio.gather(
         *(
             self.get_single_server_status(cfg, ext_ip, idx, srv)
             for idx, srv in enumerate(cfg.servers)
         )
     )
 
-    servers_status = []
-    config_dirty = False
-    for dto, is_dirty in results:
-      servers_status.append(dto.model_dump())
-      if is_dirty:
-        config_dirty = True
+    servers_status = [dto.model_dump() for dto in dtos]
 
-    if config_dirty and not self.runtime_state:
-      self.repository.save(cfg)
 
     preview_data = None
     active_preview = self.preview_store.get_preview()

@@ -1,7 +1,9 @@
 import asyncio
 from datetime import datetime
 import logging
+import time
 from typing import Optional
+
 from app.core.config import TIMING_CONFIG
 from app.core.models import ServerModel
 from app.core.protocols import (
@@ -297,11 +299,61 @@ class UpdateOrchestrator:
     else:
       self.repo.save(cfg)
 
+  async def monitor_server_lifecycle(self) -> None:
+    """Monitors power transitions and countdown cancellations in the background."""
+    cfg = self.repo.load()
+    if not cfg.panel_url or not cfg.api_key:
+      return
+
+    for srv in cfg.servers:
+      if not srv.server_id:
+        continue
+
+      # 1. Startup transition inspection
+      if self.ptero.consume_startup_transition(srv.server_id):
+        logger.info(
+            f"[{srv.name}] Startup transition detected in background monitor."
+            " Triggering inspection."
+        )
+        asyncio.create_task(
+            self.run_update_check(target_server_id=srv.server_id)
+        )
+
+      # 2. External power change cancelling active countdown
+      if self.countdown.is_running(srv.server_id):
+        power = await self.ptero.get_power_state(
+            cfg.panel_url, cfg.api_key, srv.server_id
+        )
+        if power in ("starting", "stopping", "offline"):
+          logger.info(
+              f"[{srv.name}] External power state '{power}' detected."
+              " Cancelling auto-restart countdown."
+          )
+          self.countdown.stop(srv.server_id)
+          self._restarted_builds.pop(srv.server_id, None)
+          status_msg = f"Manual {power} detected — countdown cancelled"
+          srv.last_status = status_msg
+          if self.runtime_state:
+            self.runtime_state.update_server_state(
+                srv.server_id, last_status=status_msg
+            )
+          else:
+            self.repo.save(cfg)
+
   async def start_background_loop(self) -> None:
+    last_full_check = 0.0
     while True:
       try:
-        await self.run_update_check()
+        now = time.time()
+        cfg = self.repo.load()
+        interval_secs = max(cfg.check_interval, 1) * 60
+
+        if now - last_full_check >= interval_secs:
+          await self.run_update_check()
+          last_full_check = time.time()
+
+        await self.monitor_server_lifecycle()
       except Exception as e:
         logger.error(f"Scheduler exception: {e}")
-      cfg = self.repo.load()
-      await asyncio.sleep(max(cfg.check_interval, 1) * 60)
+
+      await asyncio.sleep(2)

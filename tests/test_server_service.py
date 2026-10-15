@@ -15,7 +15,9 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
   def setUp(self):
     self.repo = MagicMock()
     self.ptero = AsyncMock()
+    self.ptero.invalidate_power_cache = MagicMock()
     self.steam = AsyncMock()
+
     self.discord = AsyncMock()
     self.preview_store = WebhookPreviewStore()
     self.simulator_store = BuildSimulatorStore()
@@ -300,6 +302,45 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(target_id, "id-second")
     self.assertEqual(self.simulator_store.get_simulated_build("id-second"), "999888")
 
+  async def test_toggle_test_mode_orchestrates_clearing_and_inspection(self):
+    orchestrator = MagicMock()
+    orchestrator.run_update_check = AsyncMock()
+    self.service.orchestrator = orchestrator
+
+    cfg = AppConfigModel(test_mode=True)
+    self.repo.load.return_value = cfg
+
+    # Toggle OFF -> should clear restarted builds and trigger update check
+    await self.service.toggle_test_mode(False)
+    orchestrator.clear_restarted_build.assert_called_once()
+    orchestrator.run_update_check.assert_called_once()
+
+  async def test_trigger_simulated_build_orchestrates_simulation_and_check(self):
+    orchestrator = MagicMock()
+    orchestrator.run_update_check = AsyncMock()
+    self.service.orchestrator = orchestrator
+
+    cfg = AppConfigModel(test_mode=True, servers=[ServerModel(name="Srv1", server_id="srv-1")])
+    self.repo.load.return_value = cfg
+
+    target_id = await self.service.trigger_simulated_build("srv-1", "999888")
+    self.assertEqual(target_id, "srv-1")
+    orchestrator.clear_restarted_build.assert_called_once_with("srv-1")
+    orchestrator.run_update_check.assert_called_once_with(target_server_id="srv-1")
+
+  async def test_trigger_immediate_check(self):
+    orchestrator = MagicMock()
+    orchestrator.run_update_check = AsyncMock()
+    self.service.orchestrator = orchestrator
+
+    await self.service.trigger_immediate_check()
+    self.ptero.invalidate_power_cache.assert_called_once()
+    orchestrator.run_update_check.assert_called_once()
+
+  def test_routes_module_does_not_depend_on_orchestrator(self):
+    import app.web.routes as routes_mod
+    self.assertNotIn("UpdateOrchestrator", vars(routes_mod))
+
 
 class TestServerIdRouteIntegration(unittest.TestCase):
 
@@ -358,15 +399,14 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     self.app.state.server_service.send_power_action.assert_called_once_with("0", "start")
 
   def test_simulate_build_route_accepts_server_id(self):
-    self.app.state.server_service.simulate_build_update.return_value = (True, None, "srv-beta")
-    self.app.state.orchestrator.run_update_check = AsyncMock()
+    self.app.state.server_service.trigger_simulated_build = AsyncMock(return_value="srv-beta")
 
     res = self.client.post(
         "/api/test/simulate-build",
         json={"server_id": "srv-beta", "build_id": "777777"},
     )
     self.assertEqual(res.status_code, 200)
-    self.app.state.server_service.simulate_build_update.assert_called_once_with("srv-beta", "777777")
+    self.app.state.server_service.trigger_simulated_build.assert_called_once_with("srv-beta", "777777")
 
   def test_power_action_route_invalid_action_bubbles_error(self):
     from app.core.models import OperationResult
@@ -396,10 +436,10 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     self.assertIn("Panel HTTP 500", data.get("message", ""))
 
   def test_simulate_build_failure_bubbles_simulation_error(self):
-    self.app.state.server_service.simulate_build_update.return_value = (
-        False,
-        "Failed to simulate build update: Target server missing",
-        "srv-nonexistent",
+    from app.core.exceptions import SimulationError
+
+    self.app.state.server_service.trigger_simulated_build = AsyncMock(
+        side_effect=SimulationError("Failed to simulate build update: Target server missing")
     )
     res = self.client.post(
         "/api/test/simulate-build",
@@ -410,6 +450,7 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     self.assertEqual(data.get("status"), "error")
     self.assertEqual(data.get("error"), "SimulationError")
     self.assertIn("Target server missing", data.get("message", ""))
+
 
   def test_rename_server_empty_name_raises_configuration_error(self):
     self.app.state.server_service.find_server_index.return_value = 1
@@ -436,7 +477,37 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     self.assertIn("srv-unknown", data.get("message", ""))
 
 
+class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
+
+  def setUp(self):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.web.dependencies import get_service
+
+    self.app = app
+    self.mock_service = MagicMock()
+    self.app.dependency_overrides[get_service] = lambda: self.mock_service
+    self.client = TestClient(self.app, raise_server_exceptions=True)
+
+  def tearDown(self):
+    self.app.dependency_overrides.clear()
+
+  def test_check_now_delegates_to_service(self):
+    self.mock_service.trigger_immediate_check = AsyncMock()
+    res = self.client.post("/check-now", headers={"accept": "application/json"})
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok"})
+    self.mock_service.trigger_immediate_check.assert_called_once()
+
+  def test_toggle_test_mode_delegates_to_service(self):
+    self.mock_service.toggle_test_mode = AsyncMock(return_value=True)
+    res = self.client.post("/toggle-test-mode", json={"enabled": True})
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok", "test_mode": True})
+    self.mock_service.toggle_test_mode.assert_called_once_with(True)
+
 
 if __name__ == "__main__":
   unittest.main()
+
 

@@ -242,17 +242,25 @@ class TestServiceRuntimeStateIntegration(unittest.IsolatedAsyncioTestCase):
     preview_store = MagicMock()
     preview_store.get_preview.return_value = None
 
-    orchestrator = AsyncMock()
+    runtime_state = RuntimeStateStore()
+    orchestrator = UpdateOrchestrator(
+        repository=repo,
+        ptero=ptero,
+        steam=AsyncMock(),
+        countdown=countdown,
+        runtime_state=runtime_state,
+    )
     a2s = AsyncMock()
 
-    runtime_state = RuntimeStateStore()
+
+    # Background lifecycle monitor detects power change and updates ephemeral runtime state
+    await orchestrator.monitor_server_lifecycle()
 
     service = StatusAggregationService(
         repository=repo,
         ptero=ptero,
         countdown=countdown,
         preview_store=preview_store,
-        orchestrator=orchestrator,
         a2s=a2s,
         runtime_state=runtime_state,
     )
@@ -266,6 +274,7 @@ class TestServiceRuntimeStateIntegration(unittest.IsolatedAsyncioTestCase):
 
     # Disk repo save MUST NOT be called during an HTTP GET query poll when runtime_state is present!
     repo.save.assert_not_called()
+
 
 
 if __name__ == "__main__":

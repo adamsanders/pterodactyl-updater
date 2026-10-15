@@ -100,7 +100,9 @@ async def lifespan(application: FastAPI):
         countdown=countdown,
         announcements=announcement_service,
         runtime_state=runtime_state,
+        orchestrator=orchestrator,
     )
+
 
     status_service = StatusAggregationService(
         repository=repo,

@@ -75,7 +75,7 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
 
     self.tracker.record.assert_called_once()
 
-  async def test_countdown_cancelled_on_manual_power_change(self):
+  async def test_get_status_snapshot_is_pure_query_without_side_effects(self):
     srv = ServerModel(name="Enshrouded", server_id="srv_enshrouded", app_id="2278520")
     cfg = AppConfigModel(
         panel_url="http://panel.example.com",
@@ -94,11 +94,12 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
 
     snapshot = await self.service.get_status_snapshot()
 
-    # Countdown should be stopped
-    self.countdown.stop.assert_called_once_with("srv_enshrouded")
-    self.assertIn("Manual offline detected", srv.last_status)
-    # Repo should have saved the dirty config
-    self.repo.save.assert_called_once_with(cfg)
+    # Query must be side-effect free: countdown must NOT be mutated by a GET poll
+    self.countdown.stop.assert_not_called()
+    # Repo save must NOT be triggered during a GET poll
+    self.repo.save.assert_not_called()
+    self.assertEqual(snapshot["servers"][0]["power_state"], "offline")
+
 
   async def test_preview_formatting(self):
     cfg = AppConfigModel(servers=[])
