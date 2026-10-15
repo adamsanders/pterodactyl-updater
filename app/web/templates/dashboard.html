@@ -491,6 +491,11 @@
           versionEl.innerText = 'v' + data.app_version.replace(/^v/, '');
         }
 
+        const commitEl = document.getElementById('app-commit');
+        if (commitEl && data.commit_code) {
+          commitEl.innerText = 'commit ' + data.commit_code;
+        }
+
         const redundantStatuses = [
           "up to date",
           "update available",
@@ -901,7 +906,7 @@
     </form>
     <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center text-[11px] text-gray-500 select-none">
       <span>Pterodactyl Multi-Server Auto-Updater</span>
-      <span class="font-mono">v{{ app_version }}</span>
+      <span id="app-commit" class="font-mono text-gray-500 hover:text-gray-400 transition" title="Git Commit Code">commit {{ commit_code }}</span>
     </div>
   </div>
 

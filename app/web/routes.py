@@ -1,6 +1,6 @@
 import asyncio
 from app.adapters.a2s import A2SAdapter
-from app.core.config import APP_VERSION, resolve_query_port
+from app.core.config import APP_VERSION, COMMIT_CODE, resolve_query_port
 from app.core.models import ServerModel, ServerStatusDTO
 from app.core.protocols import (
     A2SGateway,
@@ -68,6 +68,7 @@ async def dashboard(
           "cfg": repo.load(),
           "countdown": countdown,
           "app_version": APP_VERSION,
+          "commit_code": COMMIT_CODE,
       },
   )
 
@@ -217,6 +218,7 @@ async def get_status_api(
 
   return JSONResponse({
       "app_version": APP_VERSION,
+      "commit_code": COMMIT_CODE,
       "last_check": cfg.last_check,
       "last_status": cfg.last_status,
       "test_mode": cfg.test_mode,

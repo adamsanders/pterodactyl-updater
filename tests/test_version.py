@@ -1,13 +1,14 @@
+import os
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
-from app.core.config import APP_VERSION
+from app.core.config import APP_VERSION, COMMIT_CODE, resolve_commit_code
 from app.main import app
 from app.core.models import AppConfigModel
 
 
-class TestAppVersion(unittest.TestCase):
+class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
@@ -17,10 +18,20 @@ class TestAppVersion(unittest.TestCase):
     self.assertGreaterEqual(len(parts), 2)
     self.assertTrue(parts[0].isdigit())
 
+  def test_commit_code_defined_and_formatted(self):
+    self.assertIsInstance(COMMIT_CODE, str)
+    self.assertTrue(len(COMMIT_CODE) > 0)
+    self.assertLessEqual(len(COMMIT_CODE), 7)
+
+  def test_resolve_commit_code_env_override(self):
+    with patch.dict(os.environ, {"GIT_COMMIT": "abcdef123456"}):
+      resolved = resolve_commit_code()
+      self.assertEqual(resolved, "abcdef1")
+
   def test_fastapi_app_has_version(self):
     self.assertEqual(app.version, APP_VERSION)
 
-  def test_dashboard_and_status_api_contain_version(self):
+  def test_dashboard_and_status_api_contain_version_and_commit(self):
     # Mock dependencies stored in app.state
     app.state.repo = MagicMock()
     app.state.repo.load.return_value = AppConfigModel(last_check="2026-10-15 12:00:00")
@@ -48,13 +59,17 @@ class TestAppVersion(unittest.TestCase):
     self.assertEqual(res.status_code, 200)
     self.assertIn(f"v{APP_VERSION}", res.text)
     self.assertIn('id="app-version"', res.text)
+    self.assertIn(f"commit {COMMIT_CODE}", res.text)
+    self.assertIn('id="app-commit"', res.text)
 
     # 2. Test JSON status API
     res_api = client.get("/api/status")
     self.assertEqual(res_api.status_code, 200)
     data = res_api.json()
     self.assertEqual(data.get("app_version"), APP_VERSION)
+    self.assertEqual(data.get("commit_code"), COMMIT_CODE)
 
 
 if __name__ == "__main__":
   unittest.main()
+

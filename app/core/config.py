@@ -7,6 +7,67 @@ CONFIG_PATH = os.getenv(
 
 APP_VERSION = os.getenv("APP_VERSION", "1.1.0")
 
+
+def resolve_commit_code() -> str:
+    """Resolves the current Git commit short hash from env or git repository."""
+    for env_var in ("GIT_COMMIT", "COMMIT_SHA", "APP_COMMIT", "GIT_SHA"):
+        val = os.getenv(env_var, "").strip()
+        if val:
+            return val[:7]
+
+    try:
+        import subprocess
+
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            timeout=1,
+            text=True,
+        ).strip()
+        if output:
+            return output[:7]
+    except Exception:
+        pass
+
+    try:
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        head_path = os.path.join(repo_root, ".git", "HEAD")
+        if os.path.isfile(head_path):
+            with open(head_path, "r", encoding="utf-8") as f:
+                ref = f.read().strip()
+            if ref.startswith("ref: "):
+                ref_rel = ref[5:].strip()
+                ref_file = os.path.join(repo_root, ".git", *ref_rel.split("/"))
+                if os.path.isfile(ref_file):
+                    with open(ref_file, "r", encoding="utf-8") as f:
+                        sha = f.read().strip()
+                        if sha:
+                            return sha[:7]
+                packed_path = os.path.join(repo_root, ".git", "packed-refs")
+                if os.path.isfile(packed_path):
+                    with open(packed_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line_str = line.strip()
+                            if line_str and not line_str.startswith(("#", "^")):
+                                parts = line_str.split()
+                                if len(parts) == 2 and parts[1] == ref_rel:
+                                    return parts[0][:7]
+            elif len(ref) >= 7:
+                return ref[:7]
+    except Exception:
+        pass
+
+    return "unknown"
+
+
+COMMIT_CODE = resolve_commit_code()
+
 SERVER_TO_GAME_APPID: dict[str, str] = {
     "896660": "892970",  # Valheim Dedicated Server -> Valheim
     "2394010": "1623730",  # Palworld Dedicated Server -> Palworld
