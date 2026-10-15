@@ -9,6 +9,7 @@ from app.adapters.repository import ConfigRepository
 from app.adapters.simulated_steam import SimulatedSteamAdapter
 from app.adapters.steam import SteamAdapter
 from app.core.config import APP_VERSION
+from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.countdown import CountdownManager
 from app.services.preview_store import WebhookPreviewStore
@@ -67,13 +68,20 @@ async def lifespan(application: FastAPI):
         repository=repo,
     )
 
-    orchestrator = UpdateOrchestrator(
+    announcement_service = AnnouncementService(
         repository=repo,
         ptero=ptero,
         steam=simulated_steam,
         discord=discord,
         preview_store=preview_store,
+    )
+
+    orchestrator = UpdateOrchestrator(
+        repository=repo,
+        ptero=ptero,
+        steam=simulated_steam,
         countdown=countdown,
+        announcements=announcement_service,
         simulator_store=simulator_store,
     )
 
@@ -81,10 +89,9 @@ async def lifespan(application: FastAPI):
         repository=repo,
         ptero=ptero,
         steam=simulated_steam,
-        discord=discord,
-        preview_store=preview_store,
         simulator_store=simulator_store,
         countdown=countdown,
+        announcements=announcement_service,
     )
 
     status_service = StatusAggregationService(
@@ -109,6 +116,7 @@ async def lifespan(application: FastAPI):
     application.state.orchestrator = orchestrator
     application.state.server_service = server_service
     application.state.status_service = status_service
+    application.state.announcements = announcement_service
     application.state.call_tracker = call_tracker
 
     bg_task = asyncio.create_task(orchestrator.start_background_loop())

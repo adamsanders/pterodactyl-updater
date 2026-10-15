@@ -9,6 +9,7 @@ from app.core.protocols import (
     PterodactylGateway,
     SteamGateway,
 )
+from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.preview_store import WebhookPreviewStore
 
@@ -22,18 +23,35 @@ class ServerService:
       repository: ConfigRepositoryProtocol,
       ptero: PterodactylGateway,
       steam: SteamGateway,
-      discord: NotificationGateway,
-      preview_store: WebhookPreviewStore,
       simulator_store: BuildSimulatorStore,
       countdown: CountdownManagerProtocol,
+      announcements: Optional[AnnouncementService] = None,
+      discord: Optional[NotificationGateway] = None,
+      preview_store: Optional[WebhookPreviewStore] = None,
   ):
     self.repo = repository
     self.ptero = ptero
     self.steam = steam
-    self.discord = discord
-    self.preview_store = preview_store
     self.simulator_store = simulator_store
     self.countdown = countdown
+    if announcements is not None:
+      self.announcements = announcements
+    else:
+      self.announcements = AnnouncementService(
+          repository=repository,
+          ptero=ptero,
+          steam=steam,
+          discord=discord,
+          preview_store=preview_store,
+      )
+
+  @property
+  def discord(self) -> Optional[NotificationGateway]:
+    return self.announcements.discord
+
+  @property
+  def preview_store(self) -> Optional[WebhookPreviewStore]:
+    return self.announcements.preview_store
 
   def save_settings(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
@@ -136,25 +154,8 @@ class ServerService:
       return
 
     server = cfg.servers[index]
-    embed = await self.steam.fetch_patchnotes(server.app_id)
-    msg = f"🧪 **[TEST ALERT]** Testing webhook dispatch for **{server.name}**."
-
-    if cfg.test_mode:
-      self.preview_store.set_preview(
-          WebhookPreview(
-              server_name=server.name,
-              message=msg,
-              embed=embed,
-              timestamp=datetime.now().strftime("%I:%M %p"),
-          )
-      )
-      server.last_status = "Test simulated (Test Mode ON)"
-    elif cfg.discord_webhook:
-      await self.discord.send_notification(cfg.discord_webhook, msg, embed)
-      server.last_status = "Test webhook dispatched to Discord"
-    else:
-      server.last_status = "Error: No Discord Webhook configured"
-
+    _, status_msg = await self.announcements.send_test_alert(server)
+    server.last_status = status_msg
     self.repo.save(cfg)
 
   def simulate_build_update(

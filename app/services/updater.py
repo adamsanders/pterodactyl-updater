@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 from typing import Optional
 from app.core.config import TIMING_CONFIG
-from app.core.models import ServerModel, WebhookPreview
+from app.core.models import ServerModel
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -11,6 +11,7 @@ from app.core.protocols import (
     PterodactylGateway,
     SteamGateway,
 )
+from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.preview_store import WebhookPreviewStore
 
@@ -26,19 +27,37 @@ class UpdateOrchestrator:
       repository: ConfigRepositoryProtocol,
       ptero: PterodactylGateway,
       steam: SteamGateway,
-      discord: NotificationGateway,
-      preview_store: WebhookPreviewStore,
       countdown: CountdownManagerProtocol,
+      announcements: Optional[AnnouncementService] = None,
+      discord: Optional[NotificationGateway] = None,
+      preview_store: Optional[WebhookPreviewStore] = None,
       simulator_store: Optional[BuildSimulatorStore] = None,
   ):
     self.repo = repository
     self.ptero = ptero
     self.steam = steam
-    self.discord = discord
-    self.preview_store = preview_store
     self.countdown = countdown
     self.simulator_store = simulator_store
     self._restarted_builds: dict[str, str] = {}
+
+    if announcements is not None:
+      self.announcements = announcements
+    else:
+      self.announcements = AnnouncementService(
+          repository=repository,
+          ptero=ptero,
+          steam=steam,
+          discord=discord,
+          preview_store=preview_store,
+      )
+
+  @property
+  def discord(self) -> Optional[NotificationGateway]:
+    return self.announcements.discord
+
+  @property
+  def preview_store(self) -> Optional[WebhookPreviewStore]:
+    return self.announcements.preview_store
 
   def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
     if server_id:
@@ -52,41 +71,11 @@ class UpdateOrchestrator:
       minutes_left: int,
       include_patchnotes: bool = False,
   ) -> None:
-    cfg = self.repo.load()
-    msg = (
-        f"Server will restart in {minutes_left} minute(s) for an update. Please find a safe spot!"
+    await self.announcements.broadcast_warning(
+        server=server,
+        minutes_left=minutes_left,
+        include_patchnotes=include_patchnotes,
     )
-    is_first = minutes_left == 15
-
-    if is_first or server.warn_ingame_countdown:
-      logger.info(f"[{server.name}] {msg}")
-      await self.ptero.send_command(
-          cfg.panel_url, cfg.api_key, server.server_id, f"say {msg}"
-      )
-
-    if cfg.discord_webhook and (
-        server.discord_alerts and (is_first or server.warn_discord_countdown)
-    ):
-      embed = (
-          await self.steam.fetch_patchnotes(server.app_id)
-          if include_patchnotes
-          else None
-      )
-      if cfg.test_mode:
-        self.preview_store.set_preview(
-            WebhookPreview(
-                server_name=server.name,
-                message=f"⚠️ **[{server.name}]** {msg}",
-                embed=embed,
-                timestamp=datetime.now().strftime("%I:%M %p"),
-            )
-        )
-      else:
-        await self.discord.send_notification(
-            webhook_url=cfg.discord_webhook,
-            message=f"⚠️ **[{server.name}]** {msg}",
-            embed=embed,
-        )
 
   async def delayed_restart_routine(self, server: ServerModel) -> None:
     cfg = self.repo.load()
