@@ -13,6 +13,7 @@ from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.countdown import CountdownManager
 from app.services.preview_store import WebhookPreviewStore
+from app.services.runtime_state import RuntimeStateStore
 from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
 from app.services.telemetry import CallTracker
@@ -55,6 +56,9 @@ async def lifespan(application: FastAPI):
       event_hooks={"request": [on_request], "response": [on_response]},
   ) as http_client:
     repo = ConfigRepository()
+    runtime_state = RuntimeStateStore()
+    runtime_state.seed_from_config(repo.load())
+
     ptero = PterodactylAdapter(client=http_client)
     real_steam = SteamAdapter(client=http_client)
     discord = DiscordAdapter(client=http_client)
@@ -85,6 +89,7 @@ async def lifespan(application: FastAPI):
         countdown=countdown,
         announcements=announcement_service,
         simulator_store=simulator_store,
+        runtime_state=runtime_state,
     )
 
     server_service = ServerService(
@@ -94,6 +99,7 @@ async def lifespan(application: FastAPI):
         simulator_store=simulator_store,
         countdown=countdown,
         announcements=announcement_service,
+        runtime_state=runtime_state,
     )
 
     status_service = StatusAggregationService(
@@ -105,9 +111,11 @@ async def lifespan(application: FastAPI):
         a2s=a2s,
         call_tracker=call_tracker,
         markdown_formatter=discord_markdown,
+        runtime_state=runtime_state,
     )
 
     application.state.repo = repo
+    application.state.runtime_state = runtime_state
     application.state.ptero = ptero
     application.state.steam = simulated_steam
     application.state.discord = discord

@@ -10,6 +10,7 @@ from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
     PterodactylGateway,
+    RuntimeStateStoreProtocol,
 )
 from app.services.preview_store import WebhookPreviewStore
 from app.services.updater import UpdateOrchestrator
@@ -30,6 +31,7 @@ class StatusAggregationService:
       a2s: A2SGateway,
       call_tracker: Optional[CallTrackerProtocol] = None,
       markdown_formatter: Optional[Callable[[str], Any]] = None,
+      runtime_state: Optional[RuntimeStateStoreProtocol] = None,
   ):
     self.repository = repository
     self.ptero = ptero
@@ -39,6 +41,7 @@ class StatusAggregationService:
     self.a2s = a2s
     self.call_tracker = call_tracker
     self.markdown_formatter = markdown_formatter
+    self.runtime_state = runtime_state
 
   async def get_single_server_status(
       self,
@@ -55,6 +58,22 @@ class StatusAggregationService:
           cfg.panel_url, cfg.api_key, srv.server_id
       )
 
+    target_ts = self.countdown.get_target(srv.server_id)
+    rem = self.countdown.get_remaining(srv.server_id)
+
+    cur_build = srv.current_build
+    lat_build = srv.latest_build
+    srv_status = srv.last_status
+
+    if self.runtime_state and srv.server_id:
+      st = self.runtime_state.get_server_state(srv.server_id)
+      if st.current_build != "Unknown":
+        cur_build = st.current_build
+      if st.latest_build != "Unknown":
+        lat_build = st.latest_build
+      if st.last_status != "Idle":
+        srv_status = st.last_status
+
     # Real-time countdown cancellation if power state changed externally
     if self.countdown.is_running(srv.server_id) and power in (
         "starting",
@@ -62,7 +81,12 @@ class StatusAggregationService:
         "offline",
     ):
       self.countdown.stop(srv.server_id)
-      srv.last_status = f"Manual {power} detected — countdown cancelled"
+      srv_status = f"Manual {power} detected — countdown cancelled"
+      srv.last_status = srv_status
+      if self.runtime_state and srv.server_id:
+        self.runtime_state.update_server_state(
+            srv.server_id, last_status=srv_status
+        )
       dirty = True
 
     # Immediate build inspection the instant a server finishes booting into Online
@@ -71,14 +95,12 @@ class StatusAggregationService:
           self.orchestrator.run_update_check(target_server_id=srv.server_id)
       )
 
-    target_ts = self.countdown.get_target(srv.server_id)
-    rem = self.countdown.get_remaining(srv.server_id)
     is_upd = (power != "offline") and (
         self.countdown.is_running(srv.server_id)
         or (
-            srv.current_build != srv.latest_build
-            and srv.current_build not in ("Unknown", "?")
-            and srv.latest_build not in ("Unknown", "?")
+            cur_build != lat_build
+            and cur_build not in ("Unknown", "?")
+            and lat_build not in ("Unknown", "?")
         )
     )
 
@@ -103,9 +125,9 @@ class StatusAggregationService:
         server_id=srv.server_id,
         name=srv.name,
         power_state=power,
-        current_build=srv.current_build,
-        latest_build=srv.latest_build,
-        last_status=srv.last_status,
+        current_build=cur_build,
+        latest_build=lat_build,
+        last_status=srv_status,
         target_timestamp=target_ts,
         remaining_seconds=rem,
         is_updating=is_upd,
@@ -148,7 +170,7 @@ class StatusAggregationService:
       if is_dirty:
         config_dirty = True
 
-    if config_dirty:
+    if config_dirty and not self.runtime_state:
       self.repository.save(cfg)
 
     preview_data = None
@@ -171,11 +193,20 @@ class StatusAggregationService:
           "timestamp": active_preview.timestamp,
       }
 
+    last_check = cfg.last_check
+    last_status = cfg.last_status
+    if self.runtime_state:
+      gst = self.runtime_state.get_global_state()
+      if gst.last_check != "Never":
+        last_check = gst.last_check
+      if gst.last_status != "Idle":
+        last_status = gst.last_status
+
     return {
         "app_version": APP_VERSION,
         "commit_code": COMMIT_CODE,
-        "last_check": cfg.last_check,
-        "last_status": cfg.last_status,
+        "last_check": last_check,
+        "last_status": last_status,
         "test_mode": cfg.test_mode,
         "servers": servers_status,
         "preview": preview_data,

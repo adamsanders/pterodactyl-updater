@@ -32,6 +32,20 @@ class OperationResult(NamedTuple):
   error: Optional[str] = None
 
 
+class ServerRuntimeState(BaseModel):
+  """Ephemeral runtime state for a single managed game server."""
+  server_id: str = ""
+  current_build: str = "Unknown"
+  latest_build: str = "Unknown"
+  last_status: str = "Idle"
+
+
+class AppRuntimeState(BaseModel):
+  """Ephemeral runtime state for the application and background updater loop."""
+  last_check: str = "Never"
+  last_status: str = "Idle"
+
+
 class ServerModel(BaseModel):
   name: str = "New Server"
   server_id: str = ""
@@ -41,9 +55,9 @@ class ServerModel(BaseModel):
   discord_alerts: bool = True
   warn_ingame_countdown: bool = True
   warn_discord_countdown: bool = True
-  current_build: str = "Unknown"
-  latest_build: str = "Unknown"
-  last_status: str = "Idle"
+  current_build: str = Field(default="Unknown", exclude=True)
+  latest_build: str = Field(default="Unknown", exclude=True)
+  last_status: str = Field(default="Idle", exclude=True)
 
 
 class AppConfigModel(BaseModel):
@@ -52,8 +66,8 @@ class AppConfigModel(BaseModel):
   check_interval: int = Field(default=15, ge=1, le=1440)
   discord_webhook: str = ""
   test_mode: bool = False
-  last_check: str = "Never"
-  last_status: str = "Idle"
+  last_check: str = Field(default="Never", exclude=True)
+  last_status: str = Field(default="Idle", exclude=True)
   servers: List[ServerModel] = Field(default_factory=list)
 
 

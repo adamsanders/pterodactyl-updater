@@ -9,6 +9,7 @@ from app.core.protocols import (
     CountdownManagerProtocol,
     NotificationGateway,
     PterodactylGateway,
+    RuntimeStateStoreProtocol,
     SteamGateway,
 )
 from app.services.announcement_service import AnnouncementService
@@ -32,12 +33,14 @@ class UpdateOrchestrator:
       discord: Optional[NotificationGateway] = None,
       preview_store: Optional[WebhookPreviewStore] = None,
       simulator_store: Optional[BuildSimulatorStore] = None,
+      runtime_state: Optional[RuntimeStateStoreProtocol] = None,
   ):
     self.repo = repository
     self.ptero = ptero
     self.steam = steam
     self.countdown = countdown
     self.simulator_store = simulator_store
+    self.runtime_state = runtime_state
     self._restarted_builds: dict[str, str] = {}
 
     if announcements is not None:
@@ -94,6 +97,11 @@ class UpdateOrchestrator:
           f"[{server.name}] {total_seconds // 60}-minute countdown ended. Restarting server via Pterodactyl API."
       )
       server.last_status = "Restarting server via Pterodactyl API..."
+      if self.runtime_state and server.server_id:
+        self.runtime_state.update_server_state(
+            server_id=server.server_id,
+            last_status=server.last_status,
+        )
       self._restarted_builds[server.server_id] = server.latest_build
       self.countdown.stop(server.server_id)
       await self.ptero.trigger_restart(
@@ -141,6 +149,14 @@ class UpdateOrchestrator:
       else:
         server.last_status = "Update Available"
 
+    if self.runtime_state and server.server_id:
+      self.runtime_state.update_server_state(
+          server_id=server.server_id,
+          current_build=server.current_build,
+          latest_build=server.latest_build,
+          last_status=server.last_status,
+      )
+
   async def _inspect_server(
       self,
       server: ServerModel,
@@ -178,6 +194,11 @@ class UpdateOrchestrator:
       server.last_status = (
           f"Manual {power_state} detected — countdown cancelled"
       )
+      if self.runtime_state and server.server_id:
+        self.runtime_state.update_server_state(
+            server_id=server.server_id,
+            last_status=server.last_status,
+        )
 
     # 3. Retrieve SteamCMD build info (always query to detect new/withdrawn/simulated builds)
     if self.simulator_store and self.simulator_store.has_simulated_build(
@@ -210,6 +231,13 @@ class UpdateOrchestrator:
         self.countdown.stop(server.server_id)
       self._restarted_builds.pop(server.server_id, None)
       server.last_status = "Up to date"
+      if self.runtime_state and server.server_id:
+        self.runtime_state.update_server_state(
+            server_id=server.server_id,
+            current_build=server.current_build,
+            latest_build=latest_build,
+            last_status=server.last_status,
+        )
       return
 
     # 5. Skip local manifest I/O if server is starting/stopping, or offline following update restart
@@ -237,11 +265,17 @@ class UpdateOrchestrator:
       self, target_server_id: Optional[str] = None
   ) -> None:
     cfg = self.repo.load()
-    cfg.last_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cfg.last_check = now_str
+    if self.runtime_state:
+      self.runtime_state.update_global_state(last_check=now_str)
 
     if not cfg.panel_url or not cfg.api_key or not cfg.servers:
       cfg.last_status = "Setup Incomplete."
-      self.repo.save(cfg)
+      if self.runtime_state:
+        self.runtime_state.update_global_state(last_status="Setup Incomplete.")
+      else:
+        self.repo.save(cfg)
       return
 
     servers_to_check = [
@@ -256,10 +290,12 @@ class UpdateOrchestrator:
           srv, cfg.panel_url, cfg.api_key, steam_build_cache
       )
 
-    cfg.last_status = (
-        f"Checked {len(servers_to_check)} server(s) successfully."
-    )
-    self.repo.save(cfg)
+    status_str = f"Checked {len(servers_to_check)} server(s) successfully."
+    cfg.last_status = status_str
+    if self.runtime_state:
+      self.runtime_state.update_global_state(last_status=status_str)
+    else:
+      self.repo.save(cfg)
 
   async def start_background_loop(self) -> None:
     while True:

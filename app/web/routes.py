@@ -1,3 +1,4 @@
+from typing import Optional
 from app.adapters.a2s import A2SAdapter
 from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.protocols import (
@@ -6,6 +7,7 @@ from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
     PterodactylGateway,
+    RuntimeStateStoreProtocol,
 )
 from app.services.preview_store import WebhookPreviewStore
 from app.services.server_service import ServerService
@@ -54,6 +56,10 @@ def get_call_tracker(request: Request) -> CallTrackerProtocol:
   return request.app.state.call_tracker
 
 
+def get_runtime_state(request: Request) -> Optional[RuntimeStateStoreProtocol]:
+  return getattr(request.app.state, "runtime_state", None)
+
+
 def get_status_service(request: Request) -> StatusAggregationService:
   if not hasattr(request.app.state, "status_service"):
     request.app.state.status_service = StatusAggregationService(
@@ -65,6 +71,7 @@ def get_status_service(request: Request) -> StatusAggregationService:
         a2s=get_a2s(request),
         call_tracker=getattr(request.app.state, "call_tracker", None),
         markdown_formatter=discord_markdown,
+        runtime_state=get_runtime_state(request),
     )
   return request.app.state.status_service
 
@@ -74,12 +81,29 @@ async def dashboard(
     request: Request,
     repo: ConfigRepositoryProtocol = Depends(get_repo),
     countdown: CountdownManagerProtocol = Depends(get_countdown),
+    runtime_state: Optional[RuntimeStateStoreProtocol] = Depends(get_runtime_state),
 ):
+  cfg = repo.load()
+  if runtime_state:
+    gst = runtime_state.get_global_state()
+    if gst.last_check != "Never":
+      cfg.last_check = gst.last_check
+    if gst.last_status != "Idle":
+      cfg.last_status = gst.last_status
+    for srv in cfg.servers:
+      st = runtime_state.get_server_state(srv.server_id)
+      if st.current_build != "Unknown":
+        srv.current_build = st.current_build
+      if st.latest_build != "Unknown":
+        srv.latest_build = st.latest_build
+      if st.last_status != "Idle":
+        srv.last_status = st.last_status
+
   return templates.TemplateResponse(
       request=request,
       name="dashboard.html",
       context={
-          "cfg": repo.load(),
+          "cfg": cfg,
           "countdown": countdown,
           "app_version": APP_VERSION,
           "commit_code": COMMIT_CODE,

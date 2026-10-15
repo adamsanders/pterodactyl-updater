@@ -7,6 +7,7 @@ from app.core.protocols import (
     CountdownManagerProtocol,
     NotificationGateway,
     PterodactylGateway,
+    RuntimeStateStoreProtocol,
     SteamGateway,
 )
 from app.services.announcement_service import AnnouncementService
@@ -28,12 +29,14 @@ class ServerService:
       announcements: Optional[AnnouncementService] = None,
       discord: Optional[NotificationGateway] = None,
       preview_store: Optional[WebhookPreviewStore] = None,
+      runtime_state: Optional[RuntimeStateStoreProtocol] = None,
   ):
     self.repo = repository
     self.ptero = ptero
     self.steam = steam
     self.simulator_store = simulator_store
     self.countdown = countdown
+    self.runtime_state = runtime_state
     if announcements is not None:
       self.announcements = announcements
     else:
@@ -109,8 +112,16 @@ class ServerService:
       if success:
         cfg.servers[index].name = new_name
         cfg.servers[index].last_status = "Renamed in Pterodactyl"
+        if self.runtime_state:
+          self.runtime_state.update_server_state(
+              target_server.server_id, last_status="Renamed in Pterodactyl"
+          )
       else:
         cfg.servers[index].last_status = f"Rename failed: {err}"
+        if self.runtime_state:
+          self.runtime_state.update_server_state(
+              target_server.server_id, last_status=f"Rename failed: {err}"
+          )
 
     self.repo.save(cfg)
     return success
@@ -138,7 +149,12 @@ class ServerService:
               " Cancelling active auto-restart countdown."
           )
           self.countdown.stop(server.server_id)
-          server.last_status = f"Countdown cancelled ({action} requested)"
+          status_msg = f"Countdown cancelled ({action} requested)"
+          server.last_status = status_msg
+          if self.runtime_state:
+            self.runtime_state.update_server_state(
+                server.server_id, last_status=status_msg
+            )
           self.repo.save(cfg)
 
       return await self.ptero.send_power_signal(
@@ -156,6 +172,10 @@ class ServerService:
     server = cfg.servers[index]
     _, status_msg = await self.announcements.send_test_alert(server)
     server.last_status = status_msg
+    if self.runtime_state:
+      self.runtime_state.update_server_state(
+          server.server_id, last_status=status_msg
+      )
     self.repo.save(cfg)
 
   def simulate_build_update(
@@ -183,5 +203,10 @@ class ServerService:
           if self.countdown.is_running(srv.server_id):
             self.countdown.stop(srv.server_id)
             srv.last_status = "Test mode disabled — countdown cancelled"
+            if self.runtime_state:
+              self.runtime_state.update_server_state(
+                  srv.server_id,
+                  last_status="Test mode disabled — countdown cancelled",
+              )
       self.repo.save(cfg)
       return enabled

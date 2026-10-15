@@ -2,13 +2,49 @@ import asyncio
 from typing import Optional, Protocol, Tuple
 from app.core.models import (
     AppConfigModel,
+    AppRuntimeState,
     LocalBuildResult,
     OperationResult,
     PlayerMetrics,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
+    ServerRuntimeState,
 )
+
+
+class RuntimeStateStoreProtocol(Protocol):
+
+  def get_global_state(self) -> AppRuntimeState:
+    ...
+
+  def update_global_state(
+      self,
+      last_check: Optional[str] = None,
+      last_status: Optional[str] = None,
+  ) -> AppRuntimeState:
+    ...
+
+  def get_server_state(self, server_id: str) -> ServerRuntimeState:
+    ...
+
+  def update_server_state(
+      self,
+      server_id: str,
+      current_build: Optional[str] = None,
+      latest_build: Optional[str] = None,
+      last_status: Optional[str] = None,
+  ) -> ServerRuntimeState:
+    ...
+
+  def get_all_server_states(self) -> dict[str, ServerRuntimeState]:
+    ...
+
+  def seed_from_config(self, config: AppConfigModel) -> None:
+    ...
+
+  def clear(self) -> None:
+    ...
 
 
 class ConfigRepositoryProtocol(Protocol):
