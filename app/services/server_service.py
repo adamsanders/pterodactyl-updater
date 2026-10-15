@@ -1,7 +1,7 @@
 from datetime import datetime
 import logging
 from typing import Optional
-from app.core.models import ServerModel, WebhookPreview
+from app.core.models import ServerModel, SettingsUpdateDTO, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -11,7 +11,6 @@ from app.core.protocols import (
 )
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.preview_store import WebhookPreviewStore
-from app.web.schemas import SettingsFormData
 
 logger = logging.getLogger("updater.server_service")
 
@@ -36,48 +35,64 @@ class ServerService:
     self.simulator_store = simulator_store
     self.countdown = countdown
 
-  def save_settings(self, form_data: SettingsFormData) -> None:
+  def save_settings(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
-    cfg.panel_url = form_data.panel_url
-    cfg.api_key = form_data.api_key
-    cfg.check_interval = form_data.check_interval
-    cfg.discord_webhook = form_data.discord_webhook
-    cfg.test_mode = form_data.test_mode
-    cfg.servers = form_data.servers
+    cfg.panel_url = settings.panel_url
+    cfg.api_key = settings.api_key
+    cfg.check_interval = settings.check_interval
+    cfg.discord_webhook = settings.discord_webhook
+    cfg.test_mode = settings.test_mode
+    cfg.servers = list(settings.servers)
     self.repo.save(cfg)
 
-  def add_server(self, form_data: SettingsFormData) -> None:
-    self.save_settings(form_data)
+  def add_server(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
+    cfg.panel_url = settings.panel_url
+    cfg.api_key = settings.api_key
+    cfg.check_interval = settings.check_interval
+    cfg.discord_webhook = settings.discord_webhook
+    cfg.test_mode = settings.test_mode
+    cfg.servers = list(settings.servers)
     cfg.servers.append(ServerModel())
     self.repo.save(cfg)
 
-  def delete_server(self, index: int, form_data: SettingsFormData) -> None:
-    self.save_settings(form_data)
+  def delete_server(self, index: int, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
+    cfg.panel_url = settings.panel_url
+    cfg.api_key = settings.api_key
+    cfg.check_interval = settings.check_interval
+    cfg.discord_webhook = settings.discord_webhook
+    cfg.test_mode = settings.test_mode
+    cfg.servers = list(settings.servers)
     if 0 <= index < len(cfg.servers):
       cfg.servers.pop(index)
-      self.repo.save(cfg)
+    self.repo.save(cfg)
 
   async def rename_server(
-      self, index: int, new_name: str, form_data: SettingsFormData
+      self, index: int, new_name: str, settings: SettingsUpdateDTO
   ) -> bool:
-    self.save_settings(form_data)
-    cfg = self.repo.load()
-
-    if not (0 <= index < len(cfg.servers)) or not new_name:
+    if not (0 <= index < len(settings.servers)) or not new_name:
       return False
 
-    target_server = cfg.servers[index]
+    target_server = settings.servers[index]
     success, err = await self.ptero.rename_server(
-        cfg.panel_url, cfg.api_key, target_server.server_id, new_name
+        settings.panel_url, settings.api_key, target_server.server_id, new_name
     )
 
-    if success:
-      target_server.name = new_name
-      target_server.last_status = "Renamed in Pterodactyl"
-    else:
-      target_server.last_status = f"Rename failed: {err}"
+    cfg = self.repo.load()
+    cfg.panel_url = settings.panel_url
+    cfg.api_key = settings.api_key
+    cfg.check_interval = settings.check_interval
+    cfg.discord_webhook = settings.discord_webhook
+    cfg.test_mode = settings.test_mode
+    cfg.servers = list(settings.servers)
+
+    if 0 <= index < len(cfg.servers):
+      if success:
+        cfg.servers[index].name = new_name
+        cfg.servers[index].last_status = "Renamed in Pterodactyl"
+      else:
+        cfg.servers[index].last_status = f"Rename failed: {err}"
 
     self.repo.save(cfg)
     return success

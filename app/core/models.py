@@ -27,6 +27,15 @@ class AppConfigModel(BaseModel):
   servers: List[ServerModel] = Field(default_factory=list)
 
 
+class SettingsUpdateDTO(BaseModel):
+  panel_url: str = ""
+  api_key: str = ""
+  check_interval: int = Field(default=15, ge=1, le=1440)
+  discord_webhook: str = ""
+  test_mode: bool = False
+  servers: List[ServerModel] = Field(default_factory=list)
+
+
 class ServerStatusDTO(BaseModel):
     idx: int
     server_id: str

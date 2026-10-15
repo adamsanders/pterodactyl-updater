@@ -301,10 +301,10 @@ async def save_settings(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  form_data = await SettingsFormData.from_form(
+  settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.save_settings(form_data)
+  service.save_settings(settings)
   return RedirectResponse(url="/?toast=saved", status_code=303)
 
 
@@ -314,10 +314,10 @@ async def add_server(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  form_data = await SettingsFormData.from_form(
+  settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.add_server(form_data)
+  service.add_server(settings)
   return RedirectResponse(url="/?toast=server_added", status_code=303)
 
 
@@ -328,10 +328,10 @@ async def delete_server(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  form_data = await SettingsFormData.from_form(
+  settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.delete_server(server_idx, form_data)
+  service.delete_server(server_idx, settings)
   return RedirectResponse(url="/?toast=server_removed", status_code=303)
 
 
@@ -343,9 +343,9 @@ async def rename_server(
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   raw_form = await request.form()
-  form_data = await SettingsFormData.from_form(raw_form, repo.load().servers)
+  settings = await SettingsFormData.from_form(raw_form, repo.load().servers)
   new_name = raw_form.get(f"srv_name_{server_idx}", "").strip()
-  await service.rename_server(server_idx, new_name, form_data)
+  await service.rename_server(server_idx, new_name, settings)
   return RedirectResponse(url="/?toast=renamed", status_code=303)
 
 
