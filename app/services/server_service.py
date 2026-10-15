@@ -1,6 +1,6 @@
 from datetime import datetime
 import logging
-from typing import Optional
+from typing import List, Optional, Union
 from app.core.models import ServerModel, SettingsUpdateDTO, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -77,7 +77,32 @@ class ServerService:
     cfg.servers.append(ServerModel())
     self.repo.save(cfg)
 
-  def delete_server(self, index: int, settings: SettingsUpdateDTO) -> None:
+  def find_server_index(
+      self, servers: List[ServerModel], identifier: Union[str, int]
+  ) -> Optional[int]:
+    """Finds server index in the server collection by server_id or legacy numeric index."""
+    ident_str = str(identifier).strip()
+    if not ident_str:
+      return None
+
+    # 1. Match by server_id
+    for idx, srv in enumerate(servers):
+      if srv.server_id and srv.server_id.strip() == ident_str:
+        return idx
+
+    # 2. Match by legacy numeric index if identifier is numeric
+    try:
+      numeric_idx = int(identifier)
+      if 0 <= numeric_idx < len(servers):
+        return numeric_idx
+    except (ValueError, TypeError):
+      pass
+
+    return None
+
+  def delete_server(
+      self, identifier: Union[str, int], settings: SettingsUpdateDTO
+  ) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -85,17 +110,22 @@ class ServerService:
     cfg.discord_webhook = settings.discord_webhook
     cfg.test_mode = settings.test_mode
     cfg.servers = list(settings.servers)
-    if 0 <= index < len(cfg.servers):
-      cfg.servers.pop(index)
+    target_idx = self.find_server_index(cfg.servers, identifier)
+    if target_idx is not None:
+      cfg.servers.pop(target_idx)
     self.repo.save(cfg)
 
   async def rename_server(
-      self, index: int, new_name: str, settings: SettingsUpdateDTO
+      self, identifier: Union[str, int], new_name: str, settings: SettingsUpdateDTO
   ) -> bool:
-    if not (0 <= index < len(settings.servers)) or not new_name:
+    if not new_name:
       return False
 
-    target_server = settings.servers[index]
+    idx = self.find_server_index(settings.servers, identifier)
+    if idx is None:
+      return False
+
+    target_server = settings.servers[idx]
     success, err = await self.ptero.rename_server(
         settings.panel_url, settings.api_key, target_server.server_id, new_name
     )
@@ -108,16 +138,17 @@ class ServerService:
     cfg.test_mode = settings.test_mode
     cfg.servers = list(settings.servers)
 
-    if 0 <= index < len(cfg.servers):
+    repo_idx = self.find_server_index(cfg.servers, identifier)
+    if repo_idx is not None:
       if success:
-        cfg.servers[index].name = new_name
-        cfg.servers[index].last_status = "Renamed in Pterodactyl"
+        cfg.servers[repo_idx].name = new_name
+        cfg.servers[repo_idx].last_status = "Renamed in Pterodactyl"
         if self.runtime_state:
           self.runtime_state.update_server_state(
               target_server.server_id, last_status="Renamed in Pterodactyl"
           )
       else:
-        cfg.servers[index].last_status = f"Rename failed: {err}"
+        cfg.servers[repo_idx].last_status = f"Rename failed: {err}"
         if self.runtime_state:
           self.runtime_state.update_server_state(
               target_server.server_id, last_status=f"Rename failed: {err}"
@@ -127,49 +158,51 @@ class ServerService:
     return success
 
   async def send_power_action(
-        self, index: int, action: str
-    ) -> tuple[bool, str | None]:
-      valid_actions = {"start", "restart", "stop", "kill"}
-      if action not in valid_actions:
-        return False, f"Invalid power action '{action}'."
+      self, identifier: Union[str, int], action: str
+  ) -> tuple[bool, Optional[str]]:
+    valid_actions = {"start", "restart", "stop", "kill"}
+    if action not in valid_actions:
+      return False, f"Invalid power action '{action}'."
 
-      cfg = self.repo.load()
-      if not (0 <= index < len(cfg.servers)):
-        return False, "Server index out of range."
-
-      server = cfg.servers[index]
-      if not cfg.panel_url or not cfg.api_key or not server.server_id:
-        return False, "Server ID or Panel API Key configuration is incomplete."
-
-      # Restart, stop, or kill cancels any pending update countdown
-      if action in ("restart", "stop", "kill"):
-        if self.countdown.is_running(server.server_id):
-          logger.info(
-              f"[{server.name}] Power action '{action}' triggered."
-              " Cancelling active auto-restart countdown."
-          )
-          self.countdown.stop(server.server_id)
-          status_msg = f"Countdown cancelled ({action} requested)"
-          server.last_status = status_msg
-          if self.runtime_state:
-            self.runtime_state.update_server_state(
-                server.server_id, last_status=status_msg
-            )
-          self.repo.save(cfg)
-
-      return await self.ptero.send_power_signal(
-          panel_url=cfg.panel_url,
-          api_key=cfg.api_key,
-          server_id=server.server_id,
-          signal=action,
-      )
-
-  async def test_webhook(self, index: int) -> None:
     cfg = self.repo.load()
-    if not (0 <= index < len(cfg.servers)):
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
+      return False, "Server index out of range."
+
+    server = cfg.servers[idx]
+    if not cfg.panel_url or not cfg.api_key or not server.server_id:
+      return False, "Server ID or Panel API Key configuration is incomplete."
+
+    # Restart, stop, or kill cancels any pending update countdown
+    if action in ("restart", "stop", "kill"):
+      if self.countdown.is_running(server.server_id):
+        logger.info(
+            f"[{server.name}] Power action '{action}' triggered."
+            " Cancelling active auto-restart countdown."
+        )
+        self.countdown.stop(server.server_id)
+        status_msg = f"Countdown cancelled ({action} requested)"
+        server.last_status = status_msg
+        if self.runtime_state:
+          self.runtime_state.update_server_state(
+              server.server_id, last_status=status_msg
+          )
+        self.repo.save(cfg)
+
+    return await self.ptero.send_power_signal(
+        panel_url=cfg.panel_url,
+        api_key=cfg.api_key,
+        server_id=server.server_id,
+        signal=action,
+    )
+
+  async def test_webhook(self, identifier: Union[str, int]) -> None:
+    cfg = self.repo.load()
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
       return
 
-    server = cfg.servers[index]
+    server = cfg.servers[idx]
     _, status_msg = await self.announcements.send_test_alert(server)
     server.last_status = status_msg
     if self.runtime_state:
@@ -179,19 +212,20 @@ class ServerService:
     self.repo.save(cfg)
 
   def simulate_build_update(
-        self, server_index: int, new_build_id: str
-    ) -> tuple[bool, Optional[str], Optional[str]]:
-      cfg = self.repo.load()
-      if not cfg.test_mode:
-        return False, "Test Mode is not enabled.", None
-      if not (0 <= server_index < len(cfg.servers)):
-        return False, "Server index out of range.", None
+      self, identifier: Union[str, int], new_build_id: str
+  ) -> tuple[bool, Optional[str], Optional[str]]:
+    cfg = self.repo.load()
+    if not cfg.test_mode:
+      return False, "Test Mode is not enabled.", None
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
+      return False, "Server index out of range.", None
 
-      server = cfg.servers[server_index]
-      # Clear previous simulations so only this selected server is targeted
-      self.simulator_store.clear_simulated_build()
-      self.simulator_store.set_simulated_build(server.server_id, new_build_id)
-      return True, None, server.server_id
+    server = cfg.servers[idx]
+    # Clear previous simulations so only this selected server is targeted
+    self.simulator_store.clear_simulated_build()
+    self.simulator_store.set_simulated_build(server.server_id, new_build_id)
+    return True, None, server.server_id
 
   def toggle_test_mode(self, enabled: bool) -> bool:
       cfg = self.repo.load()

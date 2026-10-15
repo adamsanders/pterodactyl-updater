@@ -12,17 +12,30 @@ class SettingsFormData:
   ) -> SettingsUpdateDTO:
     servers: List[ServerModel] = []
     for idx, srv in enumerate(current_servers):
+      sid = srv.server_id.strip() if srv.server_id else ""
+
+      def get_field(prefix: str, default: str = "") -> str:
+        if sid and f"{prefix}_{sid}" in form:
+          val = form.get(f"{prefix}_{sid}")
+          return str(val) if val is not None else default
+        val = form.get(f"{prefix}_{idx}")
+        return str(val) if val is not None else default
+
+      def get_bool(prefix: str) -> bool:
+        if sid and f"{prefix}_{sid}" in form:
+          return form.get(f"{prefix}_{sid}") == "true"
+        return form.get(f"{prefix}_{idx}") == "true"
+
       servers.append(
           ServerModel(
               name=srv.name,
-              server_id=str(form.get(f"srv_id_{idx}", srv.server_id)),
-              app_id=str(form.get(f"srv_appid_{idx}", srv.app_id)),
-              manifest_path=str(form.get(f"srv_manifest_{idx}", srv.manifest_path)),
-              auto_restart=form.get(f"srv_autorestart_{idx}") == "true",
-              discord_alerts=form.get(f"srv_discord_{idx}") == "true",
-              warn_ingame_countdown=form.get(f"srv_warningame_{idx}") == "true",
-              warn_discord_countdown=form.get(f"srv_warndiscord_{idx}")
-              == "true",
+              server_id=get_field("srv_id", srv.server_id),
+              app_id=get_field("srv_appid", srv.app_id),
+              manifest_path=get_field("srv_manifest", srv.manifest_path),
+              auto_restart=get_bool("srv_autorestart"),
+              discord_alerts=get_bool("srv_discord"),
+              warn_ingame_countdown=get_bool("srv_warningame"),
+              warn_discord_countdown=get_bool("srv_warndiscord"),
               current_build=srv.current_build,
               latest_build=srv.latest_build,
               last_status=srv.last_status,

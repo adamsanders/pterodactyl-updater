@@ -181,25 +181,27 @@
       btn.className = base + (isEnabled ? POWER_BUTTON_STYLES[type].enabled : POWER_BUTTON_STYLES[type].disabled);
     }
 
-    function renderStopButton(btn, idx, isEnabled) {
+    function renderStopButton(btn, idx, isEnabled, serverId = null) {
       if (!btn) return;
       btn.disabled = !isEnabled;
-      btn.onclick = () => triggerPowerAction(idx, 'stop');
+      const ident = serverId || idx;
+      btn.onclick = () => triggerPowerAction(ident, 'stop', idx);
       btn.innerHTML = `${STOP_ICON} Stop`;
       const base = "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ";
       btn.className = base + (isEnabled ? POWER_BUTTON_STYLES.stop.enabled : POWER_BUTTON_STYLES.stop.disabled);
     }
 
-    function renderKillButton(btn, idx, isEnabled) {
+    function renderKillButton(btn, idx, isEnabled, serverId = null) {
       if (!btn) return;
       btn.disabled = !isEnabled;
-      btn.onclick = () => triggerPowerAction(idx, 'kill');
+      const ident = serverId || idx;
+      btn.onclick = () => triggerPowerAction(ident, 'kill', idx);
       btn.innerHTML = `${KILL_ICON} Kill`;
       const base = "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ";
       btn.className = base + (isEnabled ? POWER_BUTTON_STYLES.kill.enabled : POWER_BUTTON_STYLES.kill.disabled);
     }
 
-    function updatePowerButtons(idx, powerState) {
+    function updatePowerButtons(idx, powerState, serverId = null) {
       const startBtn = document.getElementById('btn_start_' + idx);
       const restartBtn = document.getElementById('btn_restart_' + idx);
       const stopBtn = document.getElementById('btn_stop_' + idx);
@@ -215,18 +217,18 @@
 
         const elapsed = Date.now() - stoppingStateTrackers[idx].startTime;
         if (elapsed < 1000) {
-          renderStopButton(stopBtn, idx, false);
+          renderStopButton(stopBtn, idx, false, serverId);
 
           if (!stoppingStateTrackers[idx].timerId) {
             stoppingStateTrackers[idx].timerId = setTimeout(() => {
               const badge = document.getElementById('srv_power_badge_' + idx);
               if (badge && badge.innerText.toLowerCase().includes('stopping')) {
-                renderKillButton(stopBtn, idx, true);
+                renderKillButton(stopBtn, idx, true, serverId);
               }
             }, 1000 - elapsed);
           }
         } else {
-          renderKillButton(stopBtn, idx, true);
+          renderKillButton(stopBtn, idx, true, serverId);
         }
       } else {
         if (stoppingStateTrackers[idx]) {
@@ -239,39 +241,40 @@
         if (st === 'running') {
           setButtonState(startBtn, 'start', false);
           setButtonState(restartBtn, 'restart', true);
-          renderStopButton(stopBtn, idx, true);
+          renderStopButton(stopBtn, idx, true, serverId);
         } else if (st === 'offline') {
           setButtonState(startBtn, 'start', true);
           setButtonState(restartBtn, 'restart', false);
-          renderStopButton(stopBtn, idx, false);
+          renderStopButton(stopBtn, idx, false, serverId);
         } else if (st === 'starting') {
           setButtonState(startBtn, 'start', false);
           setButtonState(restartBtn, 'restart', false);
-          renderStopButton(stopBtn, idx, true);
+          renderStopButton(stopBtn, idx, true, serverId);
         } else {
           setButtonState(startBtn, 'start', true);
           setButtonState(restartBtn, 'restart', true);
-          renderStopButton(stopBtn, idx, true);
+          renderStopButton(stopBtn, idx, true, serverId);
         }
       }
     }
 
-    async function triggerPowerAction(idx, action) {
-      const btn = document.getElementById(`btn_${action === 'kill' ? 'stop' : action}_${idx}`);
+    async function triggerPowerAction(identifier, action, uiIndex = null) {
+      const targetIdx = (uiIndex !== null && uiIndex !== undefined) ? uiIndex : identifier;
+      const btn = document.getElementById(`btn_${action === 'kill' ? 'stop' : action}_${targetIdx}`);
       if (btn && btn.disabled) return;
 
       if (btn) btn.disabled = true;
 
       if (action === 'stop') {
-        if (stoppingStateTrackers[idx]?.timerId) {
-          clearTimeout(stoppingStateTrackers[idx].timerId);
+        if (stoppingStateTrackers[targetIdx]?.timerId) {
+          clearTimeout(stoppingStateTrackers[targetIdx].timerId);
         }
-        stoppingStateTrackers[idx] = { startTime: Date.now(), timerId: null };
-        renderStopButton(btn, idx, false);
+        stoppingStateTrackers[targetIdx] = { startTime: Date.now(), timerId: null };
+        renderStopButton(btn, targetIdx, false, identifier);
       }
 
       try {
-        const res = await fetch(`/api/servers/${idx}/power/${action}`, {
+        const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/power/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -388,7 +391,7 @@
       const btn = document.getElementById('btn-sim-trigger');
       if (!select || !input || !btn) return;
 
-      const serverIdx = select.value;
+      const serverIdent = select.value;
       const buildId = input.value.trim();
       if (!buildId) {
         showToast('Please specify a build ID to simulate.', 'error');
@@ -403,7 +406,11 @@
         const res = await fetch('/api/test/simulate-build', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ server_idx: parseInt(serverIdx), build_id: buildId })
+          body: JSON.stringify({
+            server_id: serverIdent,
+            server_idx: parseInt(serverIdent) || 0,
+            build_id: buildId
+          })
         });
         const data = await res.json();
         if (!res.ok || data.status !== 'ok') {
@@ -507,7 +514,7 @@
         if (Array.isArray(data.servers)) {
           data.servers.forEach(srv => {
             const idx = srv.idx;
-            updatePowerButtons(idx, srv.power_state);
+            updatePowerButtons(idx, srv.power_state, srv.server_id);
 
             const badgeEl = document.getElementById('srv_power_badge_' + idx);
             if (badgeEl && srv.power_state) {
@@ -763,8 +770,8 @@
           <div class="flex justify-between items-center mb-2">
             <h3 id="srv_title_{{ idx }}" class="font-bold text-indigo-300">Server #{{ idx + 1 }}: {{ srv.name }}</h3>
             <div class="flex items-center gap-3">
-              <button type="submit" form="main-form" formaction="/test-webhook/{{ idx }}" class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold">Test Webhook</button>
-              <button type="submit" form="main-form" formaction="/delete-server/{{ idx }}" class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
+              <button type="submit" form="main-form" formaction="/test-webhook/{{ srv.server_id or idx }}" class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold">Test Webhook</button>
+              <button type="submit" form="main-form" formaction="/delete-server/{{ srv.server_id or idx }}" class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
             </div>
           </div>
 
@@ -772,7 +779,7 @@
           <div class="flex items-center gap-2 mb-3">
             <button type="button"
                     id="btn_start_{{ idx }}"
-                    onclick="triggerPowerAction('{{ idx }}', 'start')"
+                    onclick="triggerPowerAction('{{ srv.server_id or idx }}', 'start', {{ idx }})"
                     class="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition bg-gray-800/40 border border-gray-700/50 text-gray-500 cursor-not-allowed opacity-50"
                     disabled>
               <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -781,7 +788,7 @@
 
             <button type="button"
                     id="btn_restart_{{ idx }}"
-                    onclick="triggerPowerAction('{{ idx }}', 'restart')"
+                    onclick="triggerPowerAction('{{ srv.server_id or idx }}', 'restart', {{ idx }})"
                     class="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition bg-gray-800/40 border border-gray-700/50 text-gray-500 cursor-not-allowed opacity-50"
                     disabled>
               <svg class="w-3.5 h-3.5 fill-none stroke-current" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -790,7 +797,7 @@
 
             <button type="button"
                     id="btn_stop_{{ idx }}"
-                    onclick="triggerPowerAction('{{ idx }}', 'stop')"
+                    onclick="triggerPowerAction('{{ srv.server_id or idx }}', 'stop', {{ idx }})"
                     class="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition bg-gray-800/40 border border-gray-700/50 text-gray-500 cursor-not-allowed opacity-50"
                     disabled>
               <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
@@ -855,8 +862,8 @@
                 <button type="button" onclick="toggleEditName('{{ idx }}')" id="edit_btn_{{ idx }}" class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition">Edit</button>
               </div>
               <div class="flex gap-2">
-                <input id="srv_name_input_{{ idx }}" name="srv_name_{{ idx }}" type="text" value="{{ srv.name }}" readonly class="w-full bg-gray-950/60 border border-gray-800 text-gray-400 rounded p-1.5 text-sm cursor-not-allowed transition">
-                <button type="submit" id="save_name_btn_{{ idx }}" formaction="/rename-server/{{ idx }}" class="hidden bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-semibold whitespace-nowrap transition">Save</button>
+                <input id="srv_name_input_{{ idx }}" name="srv_name_{{ srv.server_id or idx }}" type="text" value="{{ srv.name }}" readonly class="w-full bg-gray-950/60 border border-gray-800 text-gray-400 rounded p-1.5 text-sm cursor-not-allowed transition">
+                <button type="submit" id="save_name_btn_{{ idx }}" formaction="/rename-server/{{ srv.server_id or idx }}" class="hidden bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-semibold whitespace-nowrap transition">Save</button>
               </div>
             </div>
             <div>
@@ -935,7 +942,7 @@
           <label class="block text-[10px] text-gray-400 uppercase mb-0.5">Target Server</label>
           <select id="sim-server-select" class="w-full bg-gray-900 border border-gray-800 rounded px-2 py-1 text-xs text-white">
             {% for srv in cfg.servers %}
-            <option value="{{ loop.index0 }}">#{{ loop.index }}: {{ srv.name }}</option>
+            <option value="{{ srv.server_id or loop.index0 }}">#{{ loop.index }}: {{ srv.name }}</option>
             {% endfor %}
           </select>
         </div>

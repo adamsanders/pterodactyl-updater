@@ -161,11 +161,13 @@ async def simulate_build(
     orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
 ):
   data = await request.json()
-  server_idx = int(data.get("server_idx", 0))
+  server_ident = data.get("server_id")
+  if server_ident is None:
+    server_ident = data.get("server_idx", 0)
   build_id = str(data.get("build_id", "")).strip()
 
   success, err, target_server_id = service.simulate_build_update(
-      server_idx, build_id
+      server_ident, build_id
   )
   if not success:
     return JSONResponse(
@@ -186,24 +188,30 @@ async def clear_preview(
   return JSONResponse({"status": "ok"})
 
 
-@router.post("/api/servers/{server_idx}/power/{action}")
+@router.post("/api/servers/{server_id}/power/{action}")
 async def server_power_action(
-    server_idx: int,
+    server_id: str,
     action: str,
     service: ServerService = Depends(get_service),
     orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   cfg = repo.load()
-  if 0 <= server_idx < len(cfg.servers):
-    orchestrator.clear_restarted_build(cfg.servers[server_idx].server_id)
-  success, err = await service.send_power_action(server_idx, action)
+  idx = service.find_server_index(cfg.servers, server_id)
+  target_id = cfg.servers[idx].server_id if idx is not None else server_id
+  orchestrator.clear_restarted_build(target_id)
+  success, err = await service.send_power_action(server_id, action)
   if not success:
     return JSONResponse(
         {"status": "error", "message": err or "Action failed"}, status_code=400
     )
   return JSONResponse(
-      {"status": "ok", "action": action, "server_idx": server_idx}
+      {
+          "status": "ok",
+          "action": action,
+          "server_id": target_id,
+          "server_idx": idx if idx is not None else 0,
+      }
   )
 
 
@@ -233,9 +241,9 @@ async def add_server(
   return RedirectResponse(url="/?toast=server_added", status_code=303)
 
 
-@router.post("/delete-server/{server_idx}")
+@router.post("/delete-server/{server_id}")
 async def delete_server(
-    server_idx: int,
+    server_id: str,
     request: Request,
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
@@ -243,29 +251,35 @@ async def delete_server(
   settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.delete_server(server_idx, settings)
+  service.delete_server(server_id, settings)
   return RedirectResponse(url="/?toast=server_removed", status_code=303)
 
 
-@router.post("/rename-server/{server_idx}")
+@router.post("/rename-server/{server_id}")
 async def rename_server(
-    server_idx: int,
+    server_id: str,
     request: Request,
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   raw_form = await request.form()
-  settings = await SettingsFormData.from_form(raw_form, repo.load().servers)
-  new_name = raw_form.get(f"srv_name_{server_idx}", "").strip()
-  await service.rename_server(server_idx, new_name, settings)
+  servers = repo.load().servers
+  settings = await SettingsFormData.from_form(raw_form, servers)
+  idx = service.find_server_index(servers, server_id)
+  new_name = (
+      raw_form.get(f"srv_name_{server_id}")
+      or (raw_form.get(f"srv_name_{idx}") if idx is not None else None)
+      or ""
+  ).strip()
+  await service.rename_server(server_id, new_name, settings)
   return RedirectResponse(url="/?toast=renamed", status_code=303)
 
 
-@router.post("/test-webhook/{server_idx}")
+@router.post("/test-webhook/{server_id}")
 async def test_webhook(
-    server_idx: int, service: ServerService = Depends(get_service)
+    server_id: str, service: ServerService = Depends(get_service)
 ):
-  await service.test_webhook(server_idx)
+  await service.test_webhook(server_id)
   return RedirectResponse(url="/", status_code=303)
 
 
