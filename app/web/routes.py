@@ -1,7 +1,5 @@
-import asyncio
 from app.adapters.a2s import A2SAdapter
-from app.core.config import APP_VERSION, COMMIT_CODE, resolve_query_port
-from app.core.models import ServerModel, ServerStatusDTO
+from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.protocols import (
     A2SGateway,
     CallTrackerProtocol,
@@ -11,6 +9,7 @@ from app.core.protocols import (
 )
 from app.services.preview_store import WebhookPreviewStore
 from app.services.server_service import ServerService
+from app.services.status_service import StatusAggregationService
 from app.services.updater import UpdateOrchestrator
 from app.web.filters import discord_markdown
 from app.web.schemas import SettingsFormData
@@ -55,6 +54,21 @@ def get_call_tracker(request: Request) -> CallTrackerProtocol:
   return request.app.state.call_tracker
 
 
+def get_status_service(request: Request) -> StatusAggregationService:
+  if not hasattr(request.app.state, "status_service"):
+    request.app.state.status_service = StatusAggregationService(
+        repository=get_repo(request),
+        ptero=get_ptero(request),
+        countdown=get_countdown(request),
+        preview_store=get_preview_store(request),
+        orchestrator=get_orchestrator(request),
+        a2s=get_a2s(request),
+        call_tracker=getattr(request.app.state, "call_tracker", None),
+        markdown_formatter=discord_markdown,
+    )
+  return request.app.state.status_service
+
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -90,141 +104,11 @@ async def clear_telemetry(
 
 @router.get("/api/status")
 async def get_status_api(
-    repo: ConfigRepositoryProtocol = Depends(get_repo),
-    ptero: PterodactylGateway = Depends(get_ptero),
-    countdown: CountdownManagerProtocol = Depends(get_countdown),
-    previews: WebhookPreviewStore = Depends(get_preview_store),
-    orchestrator: UpdateOrchestrator = Depends(get_orchestrator),
-    a2s: A2SGateway = Depends(get_a2s),
-    tracker: CallTrackerProtocol = Depends(get_call_tracker),
+    status_service: StatusAggregationService = Depends(get_status_service),
 ):
-  cfg = repo.load()
+  snapshot = await status_service.get_status_snapshot()
+  return JSONResponse(snapshot)
 
-  tracker.record(
-      endpoint="Internal: /api/status Poll",
-      method="GET",
-      status="200",
-      duration_ms=0.5,
-      details="Client dashboard live sync",
-  )
-
-  ext_ip = await ptero.get_external_ip()
-
-  async def get_single_server_status(
-      idx: int, srv: ServerModel
-  ) -> tuple[ServerStatusDTO, bool]:
-    dirty = False
-    power = "unknown"
-    if cfg.panel_url and cfg.api_key and srv.server_id:
-      power = await ptero.get_power_state(
-          cfg.panel_url, cfg.api_key, srv.server_id
-      )
-
-    # Real-time countdown cancellation if power state changed externally
-    if countdown.is_running(srv.server_id) and power in (
-        "starting",
-        "stopping",
-        "offline",
-    ):
-      countdown.stop(srv.server_id)
-      srv.last_status = f"Manual {power} detected — countdown cancelled"
-      dirty = True
-
-    # Immediate build inspection the instant a server finishes booting into Online
-    if ptero.consume_startup_transition(srv.server_id):
-      asyncio.create_task(
-          orchestrator.run_update_check(target_server_id=srv.server_id)
-      )
-
-    target_ts = countdown.get_target(srv.server_id)
-    rem = countdown.get_remaining(srv.server_id)
-    is_upd = countdown.is_running(srv.server_id) or (
-        srv.current_build != srv.latest_build
-        and srv.current_build not in ("Unknown", "?")
-        and srv.latest_build not in ("Unknown", "?")
-    )
-
-    internal_ip, game_port = None, None
-    if cfg.panel_url and cfg.api_key and srv.server_id:
-      internal_ip, game_port = await ptero.get_server_allocation(
-          cfg.panel_url, cfg.api_key, srv.server_id
-      )
-
-    query_port = (
-        resolve_query_port(srv.app_id, game_port) if game_port else None
-    )
-
-    player_count, max_players = None, None
-    if power == "running" and ext_ip and query_port:
-      player_count, max_players = await a2s.get_player_count(
-          ext_ip, query_port
-      )
-
-    dto = ServerStatusDTO(
-        idx=idx,
-        server_id=srv.server_id,
-        name=srv.name,
-        power_state=power,
-        current_build=srv.current_build,
-        latest_build=srv.latest_build,
-        last_status=srv.last_status,
-        target_timestamp=target_ts,
-        remaining_seconds=rem,
-        is_updating=is_upd,
-        external_ip=ext_ip,
-        internal_ip=internal_ip,
-        port=game_port,
-        query_port=query_port,
-        player_count=player_count,
-        max_players=max_players,
-    )
-    return dto, dirty
-
-  # Query all servers concurrently in parallel
-  results = await asyncio.gather(
-      *(
-          get_single_server_status(idx, srv)
-          for idx, srv in enumerate(cfg.servers)
-      )
-  )
-
-  servers_status = []
-  config_dirty = False
-  for dto, is_dirty in results:
-    servers_status.append(dto.model_dump())
-    if is_dirty:
-      config_dirty = True
-
-  if config_dirty:
-    repo.save(cfg)
-
-  preview_data = None
-  active_preview = previews.get_preview()
-  if active_preview:
-    preview_data = {
-        "server_name": active_preview.server_name,
-        "message": active_preview.message,
-        "formatted_message": str(discord_markdown(active_preview.message)),
-        "embed": active_preview.embed,
-        "formatted_description": (
-            str(
-                discord_markdown(active_preview.embed.get("description", ""))
-            )
-            if active_preview.embed
-            else ""
-        ),
-        "timestamp": active_preview.timestamp,
-    }
-
-  return JSONResponse({
-      "app_version": APP_VERSION,
-      "commit_code": COMMIT_CODE,
-      "last_check": cfg.last_check,
-      "last_status": cfg.last_status,
-      "test_mode": cfg.test_mode,
-      "servers": servers_status,
-      "preview": preview_data,
-  })
 
 
 @router.post("/toggle-test-mode")

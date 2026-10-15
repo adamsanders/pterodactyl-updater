@@ -13,8 +13,10 @@ from app.services.build_simulator import BuildSimulatorStore
 from app.services.countdown import CountdownManager
 from app.services.preview_store import WebhookPreviewStore
 from app.services.server_service import ServerService
+from app.services.status_service import StatusAggregationService
 from app.services.telemetry import CallTracker
 from app.services.updater import UpdateOrchestrator
+from app.web.filters import discord_markdown
 from app.web.routes import router as web_router
 from fastapi import FastAPI
 import httpx
@@ -85,6 +87,17 @@ async def lifespan(application: FastAPI):
         countdown=countdown,
     )
 
+    status_service = StatusAggregationService(
+        repository=repo,
+        ptero=ptero,
+        countdown=countdown,
+        preview_store=preview_store,
+        orchestrator=orchestrator,
+        a2s=a2s,
+        call_tracker=call_tracker,
+        markdown_formatter=discord_markdown,
+    )
+
     application.state.repo = repo
     application.state.ptero = ptero
     application.state.steam = simulated_steam
@@ -95,6 +108,7 @@ async def lifespan(application: FastAPI):
     application.state.simulator_store = simulator_store
     application.state.orchestrator = orchestrator
     application.state.server_service = server_service
+    application.state.status_service = status_service
     application.state.call_tracker = call_tracker
 
     bg_task = asyncio.create_task(orchestrator.start_background_loop())
