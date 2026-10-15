@@ -73,10 +73,13 @@ class StatusAggregationService:
 
     target_ts = self.countdown.get_target(srv.server_id)
     rem = self.countdown.get_remaining(srv.server_id)
-    is_upd = self.countdown.is_running(srv.server_id) or (
-        srv.current_build != srv.latest_build
-        and srv.current_build not in ("Unknown", "?")
-        and srv.latest_build not in ("Unknown", "?")
+    is_upd = (power != "offline") and (
+        self.countdown.is_running(srv.server_id)
+        or (
+            srv.current_build != srv.latest_build
+            and srv.current_build not in ("Unknown", "?")
+            and srv.latest_build not in ("Unknown", "?")
+        )
     )
 
     internal_ip, game_port = None, None

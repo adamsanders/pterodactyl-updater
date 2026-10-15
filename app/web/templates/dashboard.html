@@ -621,7 +621,8 @@
         // Dynamically adjust polling frequency based on server states
         if (!document.hidden) {
           const hasTransitionalServer = data.servers.some(s => 
-            ['starting', 'stopping'].includes((s.power_state || '').toLowerCase()) || s.is_updating
+            ['starting', 'stopping'].includes((s.power_state || '').toLowerCase()) ||
+            ((s.power_state || '').toLowerCase() !== 'offline' && s.is_updating)
           );
           const desiredInterval = hasTransitionalServer ? FAST_POLL_INTERVAL : STEADY_POLL_INTERVAL;
           

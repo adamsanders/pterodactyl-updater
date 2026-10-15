@@ -12,6 +12,8 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.repo = MagicMock()
     self.ptero = AsyncMock()
     self.ptero.consume_startup_transition = MagicMock(return_value=False)
+    self.ptero.get_server_allocation.return_value = (None, None)
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
     self.countdown = MagicMock()
     self.preview_store = MagicMock()
     self.orchestrator = AsyncMock()
@@ -115,6 +117,53 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(snapshot["preview"]["formatted_message"], "<p>Update detected!</p>")
     self.assertEqual(snapshot["preview"]["formatted_description"], "<p>Patch notes</p>")
 
+  async def test_offline_server_with_outdated_build_is_not_updating(self):
+    srv = ServerModel(
+        name="Offline Test Server",
+        server_id="srv_offline_test",
+        app_id="896660",
+        current_build="1000",
+        latest_build="2000",
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.return_value = "offline"
+    self.countdown.is_running.return_value = False
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertFalse(server_data["is_updating"])
+
+  async def test_running_server_with_outdated_build_is_updating(self):
+    srv = ServerModel(
+        name="Running Server",
+        server_id="srv_running",
+        app_id="896660",
+        current_build="1000",
+        latest_build="2000",
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.return_value = "running"
+    self.countdown.is_running.return_value = False
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertTrue(server_data["is_updating"])
+
 
 if __name__ == "__main__":
   unittest.main()
+
