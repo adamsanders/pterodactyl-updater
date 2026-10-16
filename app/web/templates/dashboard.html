@@ -15,6 +15,9 @@
       <span id="app-version" class="text-xs font-mono font-medium text-gray-500 hover:text-gray-400 transition select-none bg-gray-950/80 px-2.5 py-1 rounded-md border border-gray-800" title="Build Version">v{{ ver }}</span>
     </div>
 
+    <!-- Global Status Component -->
+    {% include "components/_global_status.html" %}
+
     <!-- Main Configuration Form -->
     <form id="main-form" method="post" action="/save" class="space-y-4">
       <!-- Global Settings Panel Component -->

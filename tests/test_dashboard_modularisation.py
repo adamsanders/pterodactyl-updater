@@ -84,6 +84,7 @@ class TestDashboardModularisation(unittest.TestCase):
 
   def test_component_files_exist_on_filesystem(self):
     expected_components = [
+        "_global_status.html",
         "_settings_panel.html",
         "_server_card.html",
         "_footer.html",
@@ -139,9 +140,12 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertIn('id="srv_countdown_wrap_1"', res.text)
     self.assertIn("5m 0s", res.text)
 
-    # Footer elements
+    # Global Status card is rendered near the top before main-form
     self.assertIn('id="global-last-check"', res.text)
     self.assertIn('id="btn-check-now"', res.text)
+    self.assertLess(res.text.index('id="btn-check-now"'), res.text.index('id="main-form"'))
+
+    # Footer elements
     self.assertIn(f"v{APP_VERSION}", res.text)
     self.assertIn(f"commit {COMMIT_CODE}", res.text)
 
@@ -159,13 +163,19 @@ class TestDashboardModularisation(unittest.TestCase):
   def test_render_component_partials_directly(self):
     cfg = app.state.repo.load()
 
-    # 1. Settings panel partial
+    # 1. Global status partial
+    tpl_status = templates.get_template("components/_global_status.html")
+    html_status = tpl_status.render(cfg=cfg)
+    self.assertIn('id="global-last-check"', html_status)
+    self.assertIn('id="btn-check-now"', html_status)
+
+    # 2. Settings panel partial
     tpl_settings = templates.get_template("components/_settings_panel.html")
     html_settings = tpl_settings.render(cfg=cfg)
     self.assertIn("Global Panel Settings", html_settings)
     self.assertIn('name="panel_url"', html_settings)
 
-    # 2. Server card partial
+    # 3. Server card partial
     tpl_card = templates.get_template("components/_server_card.html")
     html_card = tpl_card.render(
         srv=cfg.servers[0],
@@ -175,18 +185,17 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertIn("Survival Server", html_card)
     self.assertIn('id="btn_start_0"', html_card)
 
-    # 3. Footer partial
+    # 4. Footer partial
     tpl_footer = templates.get_template("components/_footer.html")
     html_footer = tpl_footer.render(
         cfg=cfg,
         app_version=APP_VERSION,
         commit_code=COMMIT_CODE,
     )
-    self.assertIn('id="btn-check-now"', html_footer)
     self.assertIn(f"v{APP_VERSION}", html_footer)
     self.assertIn(f"commit {COMMIT_CODE}", html_footer)
 
-    # 4. Modals partial
+    # 5. Modals partial
     tpl_modals = templates.get_template("components/_modals.html")
     html_modals = tpl_modals.render(cfg=cfg)
     self.assertIn('id="test-simulator-window"', html_modals)
@@ -239,28 +248,33 @@ class TestDashboardModularisation(unittest.TestCase):
     # Tests that every single modular template can render safely without throwing UndefinedError
     # when variables are omitted or passed as None
 
-    # 1. Footer with zero variables
+    # 1. Global status with zero variables
+    tpl_status = templates.get_template("components/_global_status.html")
+    html_status = tpl_status.render()
+    self.assertIn('id="btn-check-now"', html_status)
+    self.assertIn('id="global-last-check"', html_status)
+
+    # 2. Footer with zero variables
     tpl_footer = templates.get_template("components/_footer.html")
     html_footer = tpl_footer.render()
-    self.assertIn('id="btn-check-now"', html_footer)
-    self.assertIn('id="global-last-check"', html_footer)
+    self.assertIn('id="app-commit"', html_footer)
 
-    # 2. Settings panel with zero variables
+    # 3. Settings panel with zero variables
     tpl_settings = templates.get_template("components/_settings_panel.html")
     html_settings = tpl_settings.render()
     self.assertIn("Global Panel Settings", html_settings)
 
-    # 3. Simulator modal with zero variables
+    # 4. Simulator modal with zero variables
     tpl_sim = templates.get_template("components/_simulator_modal.html")
     html_sim = tpl_sim.render()
     self.assertIn('id="test-simulator-window"', html_sim)
 
-    # 4. Modals partial with zero variables
+    # 5. Modals partial with zero variables
     tpl_modals = templates.get_template("components/_modals.html")
     html_modals = tpl_modals.render()
     self.assertIn('id="toast-container"', html_modals)
 
-    # 5. Server card with countdown=None
+    # 6. Server card with countdown=None
     srv = ServerModel(
         server_id="srv-solo",
         name="Solo Server",

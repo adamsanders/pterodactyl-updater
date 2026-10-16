@@ -1,20 +1,5 @@
-<!-- Telemetry Status Bar & Manual Check Trigger -->
-{% set c = cfg if (cfg is defined and cfg) else None %}
 {% set ver = app_version if (app_version is defined and app_version) else (version if (version is defined and version) else '') %}
 {% set commit = commit_code if (commit_code is defined and commit_code) else '' %}
-<div class="bg-gray-800/60 border border-gray-700/60 rounded-lg p-4 mt-6">
-  <div class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1">Global Status</div>
-  <div class="text-sm mb-3">
-    <span class="text-gray-400">Last Global Check:</span> 
-    <span id="global-last-check" class="text-white ml-1">{{ c.last_check if c else (last_check if (last_check is defined and last_check) else 'Never') }}</span>
-  </div>
-  <button type="button" 
-          id="btn-check-now" 
-          onclick="triggerCheckNow(this)" 
-          class="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 py-2 rounded text-sm font-semibold transition cursor-pointer">
-    <span>Run Update Check Now (All Servers)</span>
-  </button>
-</div>
 
 <!-- Version Display & Commit Code Bar -->
 <div class="mt-6 pt-3 border-t border-gray-800/60 flex justify-between items-center text-[11px] text-gray-500 select-none">
