@@ -147,7 +147,7 @@ class SteamAdapter:
     text = re.sub(
         r"\[img\].*?\[/img\]", "", text, flags=re.IGNORECASE | re.DOTALL
     )
-    text = re.sub(r"\[/?[a-zA-Z0-9_\-=:\.\s\"']+\]", "", text)
+    text = re.sub(r"\[/?[a-zA-Z0-9_\-=:\.\s\"']+\](?!\()", "", text)
 
     text = html.unescape(text)
     cleaned = "\n".join([line.strip() for line in text.split("\n")])

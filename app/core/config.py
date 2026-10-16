@@ -7,7 +7,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.10.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.11.0")
 
 
 @dataclass(frozen=True)
