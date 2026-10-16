@@ -22,9 +22,15 @@ from app.services.updater import UpdateOrchestrator
 from app.core.exceptions import DomainError
 from app.web.filters import discord_markdown
 from app.web.routes import router as web_router
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 import httpx
+import mimetypes
+
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -158,7 +164,11 @@ async def lifespan(application: FastAPI):
     logger.info("Background updater loop gracefully stopped.")
 
 
+STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI(title="Pterodactyl Multi-Server Monitor", version=APP_VERSION, lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(web_router)
 
 

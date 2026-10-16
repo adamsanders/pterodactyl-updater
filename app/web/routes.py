@@ -44,6 +44,7 @@ async def dashboard(
     request: Request,
     repo: ConfigRepositoryProtocol = Depends(get_repo),
     countdown: CountdownManagerProtocol = Depends(get_countdown),
+    preview_store: Optional[WebhookPreviewStore] = Depends(get_preview_store),
     runtime_state: Optional[RuntimeStateStoreProtocol] = Depends(get_runtime_state),
 ):
   cfg = repo.load()
@@ -62,13 +63,17 @@ async def dashboard(
       if st.last_status != "Idle":
         srv.last_status = st.last_status
 
+  preview = preview_store.get_preview() if preview_store else None
+
   return templates.TemplateResponse(
       request=request,
       name="dashboard.html",
       context={
           "cfg": cfg,
           "countdown": countdown,
+          "preview": preview,
           "app_version": APP_VERSION,
+          "version": APP_VERSION,
           "commit_code": COMMIT_CODE,
       },
   )

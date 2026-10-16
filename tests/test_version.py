@@ -12,7 +12,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertEqual(APP_VERSION, "1.16.0")
+    self.assertEqual(APP_VERSION, "1.17.0")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)
@@ -64,8 +64,14 @@ class TestAppVersionAndCommit(unittest.TestCase):
     self.assertIn('name="ssl_verify"', res.text)
     self.assertIn('id="ssl_verify"', res.text)
     self.assertIn("Verify SSL Certificates", res.text)
+    self.assertIn('/static/js/dashboard.js', res.text)
 
-    # 2. Test JSON status API
+    # 2. Test Static Files mounting for dashboard.js
+    res_static = client.get("/static/js/dashboard.js")
+    self.assertEqual(res_static.status_code, 200)
+    self.assertIn("function makeDraggable", res_static.text)
+
+    # 3. Test JSON status API
     res_api = client.get("/api/status")
     self.assertEqual(res_api.status_code, 200)
     data = res_api.json()

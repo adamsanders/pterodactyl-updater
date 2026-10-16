@@ -1,0 +1,52 @@
+{% set c = cfg if (cfg is defined and cfg) else None %}
+<div class="border-b border-gray-800 pb-4">
+  <h2 class="text-lg font-semibold text-gray-200 mb-3">Global Panel Settings</h2>
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Pterodactyl URL</label>
+      <input name="panel_url" type="text" value="{{ c.panel_url if c else '' }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Client API Key</label>
+      <input name="api_key" type="password" value="{{ c.api_key if c else '' }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-2 text-sm">
+    </div>
+  </div>
+  <div class="grid grid-cols-2 gap-4 mt-3">
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Check Interval (Minutes)</label>
+      <input name="check_interval" type="number" min="2" max="1440" value="{{ c.check_interval if (c and c.check_interval) else 5 }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Discord Webhook (Optional)</label>
+      <input name="discord_webhook" type="url" value="{{ (c.discord_webhook if c and c.discord_webhook else '') }}" class="w-full bg-gray-950 border border-gray-800 rounded p-2 text-sm">
+    </div>
+  </div>
+  <div class="mt-4 pt-3 border-t border-gray-800/80 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-6">
+      <label class="inline-flex items-center cursor-pointer">
+        <input name="test_mode" type="checkbox" value="true" {% if c and c.test_mode %}checked{% endif %} onchange="toggleTestModeImmediate(this)" class="sr-only peer">
+        <div class="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 relative"></div>
+        <span class="ml-2 text-xs font-medium text-amber-300">Test Mode (Steam MitM simulator)</span>
+      </label>
+
+      <label class="inline-flex items-center cursor-pointer group relative" title="Verify SSL certificates when connecting to Pterodactyl. Leave disabled if using self-signed certificates.">
+        <input id="ssl_verify" name="ssl_verify" type="checkbox" value="true" {% if c and c.ssl_verify %}checked{% endif %} class="sr-only peer">
+        <div class="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 relative"></div>
+        <span class="ml-2 text-xs font-medium text-gray-300 flex items-center gap-1.5">
+          Verify SSL Certificates
+          <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-200 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </span>
+        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-30 px-2.5 py-1 bg-gray-900 border border-gray-700 text-gray-200 text-[11px] rounded shadow-lg whitespace-nowrap pointer-events-none">
+          Verify TLS certificates. Disable if your Pterodactyl panel uses a self-signed certificate.
+        </div>
+      </label>
+    </div>
+
+    <button type="button" 
+            onclick="toggleLiveConsole()" 
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-indigo-300 hover:text-indigo-200 transition cursor-pointer shadow-sm">
+      <svg class="w-3.5 h-3.5 text-indigo-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      Live Console
+    </button>
+  </div>
+</div>
