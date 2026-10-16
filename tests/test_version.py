@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
-from app.core.config import APP_VERSION, COMMIT_CODE, resolve_commit_code
+from app.core.config import APP_VERSION, COMMIT_CODE, get_commit_code, resolve_commit_code
 from app.main import app
 from app.core.models import AppConfigModel
 
@@ -12,7 +12,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertEqual(APP_VERSION, "1.18.0")
+    self.assertEqual(APP_VERSION, "1.19.0")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)
@@ -23,6 +23,9 @@ class TestAppVersionAndCommit(unittest.TestCase):
     self.assertTrue(len(COMMIT_CODE) > 0)
     self.assertLessEqual(len(COMMIT_CODE), 7)
     self.assertNotEqual(COMMIT_CODE, "unknown")
+
+  def test_get_commit_code_matches_commit_code(self):
+    self.assertEqual(get_commit_code(), COMMIT_CODE)
 
   def test_resolve_commit_code_env_override(self):
     with patch.dict(os.environ, {"GIT_COMMIT": "abcdef123456"}):
@@ -42,6 +45,24 @@ class TestAppVersionAndCommit(unittest.TestCase):
       resolved = resolve_commit_code()
       self.assertNotEqual(resolved, "unknown")
       self.assertGreaterEqual(len(resolved), 7)
+
+  def test_config_import_purely_in_memory_no_side_effects(self):
+    import builtins
+    import importlib
+    import sys
+
+    original_open = builtins.open
+
+    def guarded_open(file, *args, **kwargs):
+      fname = str(file).lower()
+      if ".git" in fname or "commit" in fname:
+        raise AssertionError(f"Disk read for git/commit metadata during import: {fname}")
+      return original_open(file, *args, **kwargs)
+
+    with patch("subprocess.check_output", side_effect=AssertionError("subprocess called at import")), \
+         patch("builtins.open", side_effect=guarded_open):
+      mod = importlib.reload(sys.modules["app.core.config"])
+      self.assertIsNotNone(mod)
 
   def test_fastapi_app_has_version(self):
     self.assertEqual(app.version, APP_VERSION)

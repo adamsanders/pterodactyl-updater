@@ -1,7 +1,9 @@
 from enum import Enum
+import re
 from typing import Any, List, NamedTuple, Optional, Union
-from app.core.config import IGNORED_STEAM_APPIDS
+from app.core.catalogs import IGNORED_STEAM_APPIDS
 from app.core.exceptions import (
+    ConfigurationError,
     DomainError,
     InvalidPowerActionError,
     PterodactylApiError,
@@ -71,27 +73,41 @@ class PlayerMetrics(NamedTuple):
   max: Optional[int] = None
 
 
+def _parse_status_code_from_error(err_msg: str, default: int = 400) -> int:
+  m = re.search(r"Panel HTTP (\d+)", err_msg)
+  if m:
+    try:
+      return int(m.group(1))
+    except (ValueError, TypeError):
+      pass
+  return default
+
+
 class LocalBuildResult(NamedTuple):
   """Result of reading game server build ID from local disk manifest."""
   build_id: Optional[str] = None
   error: Optional[str] = None
+  status_code: Optional[int] = None
+  error_type: Optional[str] = None
+
+  def __iter__(self):
+    yield self.build_id
+    yield self.error
 
   def raise_if_failed(
       self,
       exc_cls: Optional[type[DomainError]] = None,
+      status_code: Optional[int] = None,
       server_id: Optional[str] = None,
   ) -> str:
     if self.error or not self.build_id:
       err_msg = self.error or "Manifest build ID could not be resolved"
       target_cls = exc_cls or PterodactylApiError
-      sc = 400
-      if "Panel HTTP " in err_msg:
-        try:
-          sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
-        except Exception:
-          sc = 400
+      effective_sc = status_code if status_code is not None else self.status_code
+      if effective_sc is None:
+        effective_sc = _parse_status_code_from_error(err_msg, default=400)
       if issubclass(target_cls, PterodactylApiError):
-        raise target_cls(err_msg, status_code=sc, server_id=server_id)
+        raise target_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
       raise target_cls(err_msg)
     return self.build_id
 
@@ -100,23 +116,27 @@ class ServerNameResult(NamedTuple):
   """Result of fetching server name from Pterodactyl API."""
   name: Optional[str] = None
   error: Optional[str] = None
+  status_code: Optional[int] = None
+  error_type: Optional[str] = None
+
+  def __iter__(self):
+    yield self.name
+    yield self.error
 
   def raise_if_failed(
       self,
       exc_cls: Optional[type[DomainError]] = None,
+      status_code: Optional[int] = None,
       server_id: Optional[str] = None,
   ) -> str:
     if self.error or not self.name:
       err_msg = self.error or "Server name could not be resolved"
       target_cls = exc_cls or PterodactylApiError
-      sc = 400
-      if "Panel HTTP " in err_msg:
-        try:
-          sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
-        except Exception:
-          sc = 400
+      effective_sc = status_code if status_code is not None else self.status_code
+      if effective_sc is None:
+        effective_sc = _parse_status_code_from_error(err_msg, default=400)
       if issubclass(target_cls, PterodactylApiError):
-        raise target_cls(err_msg, status_code=sc, server_id=server_id)
+        raise target_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
       raise target_cls(err_msg)
     return self.name
 
@@ -125,6 +145,12 @@ class OperationResult(NamedTuple):
   """General result for remote state mutations and commands."""
   success: bool
   error: Optional[str] = None
+  status_code: Optional[int] = None
+  error_type: Optional[str] = None
+
+  def __iter__(self):
+    yield self.success
+    yield self.error
 
   def __bool__(self) -> bool:
     return self.success
@@ -138,30 +164,31 @@ class OperationResult(NamedTuple):
     """Raises a DomainError if the operation did not succeed."""
     if not self.success:
       err_msg = self.error or "Operation failed"
+      effective_sc = status_code if status_code is not None else self.status_code
       if exc_cls is not None:
         if issubclass(exc_cls, PterodactylApiError):
-          sc = status_code
-          if sc is None and "Panel HTTP " in err_msg:
-            try:
-              sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
-            except Exception:
-              sc = 400
+          sc = effective_sc
+          if sc is None:
+            sc = _parse_status_code_from_error(err_msg, default=400)
           raise exc_cls(err_msg, status_code=sc or 400, server_id=server_id)
         raise exc_cls(err_msg)
 
       # Automatic classification
-      if "Invalid power action" in err_msg:
+      if self.error_type == "InvalidPowerAction" or "Invalid power action" in err_msg:
         action = err_msg.split("'")[1] if "'" in err_msg else err_msg
-        raise InvalidPowerActionError(action, status_code=status_code or 400)
-      elif "out of range" in err_msg or "not found" in err_msg.lower():
-        raise ServerNotFoundError(server_id or "unknown", status_code=status_code or 404)
+        raise InvalidPowerActionError(action, status_code=effective_sc or 400)
+      elif (
+          self.error_type in ("ServerNotFound", "NotFound")
+          or "out of range" in err_msg
+          or "not found" in err_msg.lower()
+      ):
+        raise ServerNotFoundError(server_id or "unknown", status_code=effective_sc or 404)
+      elif self.error_type == "ConfigurationError":
+        raise ConfigurationError(err_msg, status_code=effective_sc or 400)
       else:
-        sc = status_code
-        if sc is None and "Panel HTTP " in err_msg:
-          try:
-            sc = int(err_msg.split("Panel HTTP ")[1].split(":")[0].strip())
-          except Exception:
-            sc = 400
+        sc = effective_sc
+        if sc is None:
+          sc = _parse_status_code_from_error(err_msg, default=400)
         raise PterodactylApiError(err_msg, status_code=sc or 400, server_id=server_id)
     return self
 

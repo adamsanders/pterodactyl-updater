@@ -2,7 +2,8 @@ import asyncio
 import logging
 from typing import Any, Callable, Optional
 
-from app.core.config import APP_VERSION, COMMIT_CODE, resolve_query_port
+from app.core.catalogs import resolve_query_port
+from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.models import (
     AppConfigModel,
     PowerState,

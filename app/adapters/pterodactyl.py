@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.adapters.power_tracker import PowerStateTracker
-from app.core.config import IGNORED_STEAM_APPIDS, POPULAR_DEDICATED_SERVERS
+from app.core.catalogs import IGNORED_STEAM_APPIDS, POPULAR_DEDICATED_SERVERS
 from app.core.exceptions import PterodactylApiError
 from app.core.models import (
     LocalBuildResult,
@@ -136,10 +136,24 @@ class PterodactylAdapter:
     try:
       res = await self._client.get(url, headers=self._headers(api_key))
       if res.status_code == 200:
-        return ServerNameResult(res.json().get("attributes", {}).get("name"), None)
-      result = ServerNameResult(None, f"Panel HTTP {res.status_code}")
+        name = res.json().get("attributes", {}).get("name")
+        if name:
+          return ServerNameResult(name, None, status_code=200)
+        result = ServerNameResult(
+            None,
+            "Server name missing in panel response",
+            status_code=200,
+            error_type="ParseError",
+        )
+      else:
+        result = ServerNameResult(
+            None,
+            f"Panel HTTP {res.status_code}",
+            status_code=res.status_code,
+            error_type="NotFound" if res.status_code == 404 else "HttpError",
+        )
     except Exception as e:
-      result = ServerNameResult(None, f"Request error: {e}")
+      result = ServerNameResult(None, f"Request error: {e}", error_type="RequestError")
 
     if raise_on_error:
       result.raise_if_failed(server_id=server_id)
@@ -282,7 +296,12 @@ class PterodactylAdapter:
     try:
       sig = PowerSignal.from_str(signal)
     except (ValueError, TypeError):
-      result = OperationResult(False, f"Invalid power action '{signal}'.")
+      result = OperationResult(
+          False,
+          f"Invalid power action '{signal}'.",
+          status_code=400,
+          error_type="InvalidPowerAction",
+      )
       if raise_on_error:
         result.raise_if_failed(server_id=server_id)
       return result
@@ -295,10 +314,16 @@ class PterodactylAdapter:
       if res.status_code in [200, 204]:
         # Seed the tracker with the initiated signal
         self._tracker.register_signal(server_id, sig)
-        return OperationResult(True, None)
-      result = OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
+        return OperationResult(True, None, status_code=res.status_code)
+      error_type = "NotFound" if res.status_code == 404 else "HttpError"
+      result = OperationResult(
+          False,
+          f"Panel HTTP {res.status_code}: {res.text}",
+          status_code=res.status_code,
+          error_type=error_type,
+      )
     except Exception as e:
-      result = OperationResult(False, f"Request error: {e}")
+      result = OperationResult(False, f"Request error: {e}", error_type="RequestError")
 
     if raise_on_error:
       result.raise_if_failed(server_id=server_id)
@@ -309,23 +334,44 @@ class PterodactylAdapter:
   ) -> OperationResult:
     raw_power = await self.get_power_state(panel_url, api_key, server_id)
     power_state = PowerState.from_str(raw_power)
-    signal = PowerSignal.START if power_state == PowerState.OFFLINE else PowerSignal.RESTART
-    success, err = await self.send_power_signal(
+    signal = (
+        PowerSignal.START
+        if power_state == PowerState.OFFLINE
+        else PowerSignal.RESTART
+    )
+    sig_res = await self.send_power_signal(
         panel_url, api_key, server_id, signal
     )
-    if not success and signal == PowerSignal.RESTART:
-      success, err = await self.send_power_signal(
+    if not isinstance(sig_res, OperationResult):
+      sig_res = OperationResult(
+          success=bool(sig_res[0]),
+          error=sig_res[1] if len(sig_res) > 1 else None,
+          status_code=getattr(sig_res, "status_code", None),
+          error_type=getattr(sig_res, "error_type", None),
+      )
+
+    if not sig_res.success and signal == PowerSignal.RESTART:
+      fallback_res = await self.send_power_signal(
           panel_url, api_key, server_id, PowerSignal.START
       )
-    if success:
+      if not isinstance(fallback_res, OperationResult):
+        fallback_res = OperationResult(
+            success=bool(fallback_res[0]),
+            error=fallback_res[1] if len(fallback_res) > 1 else None,
+            status_code=getattr(fallback_res, "status_code", None),
+            error_type=getattr(fallback_res, "error_type", None),
+        )
+      sig_res = fallback_res
+
+    if sig_res.success:
       logger.info(
           f"Power signal '{signal}' successfully dispatched to server {server_id} via Pterodactyl API."
       )
     else:
       logger.error(
-          f"Failed to restart server {server_id} via Pterodactyl API: {err}"
+          f"Failed to restart server {server_id} via Pterodactyl API: {sig_res.error}"
       )
-    return OperationResult(success, err)
+    return sig_res
 
   async def get_local_build(
       self,
@@ -336,7 +382,12 @@ class PterodactylAdapter:
       raise_on_error: bool = False,
   ) -> LocalBuildResult:
     if not manifest_path or not server_id:
-      result = LocalBuildResult(None, "Manifest path or server ID is not configured")
+      result = LocalBuildResult(
+          None,
+          "Manifest path or server ID is not configured",
+          status_code=400,
+          error_type="InvalidConfiguration",
+      )
       if raise_on_error:
         result.raise_if_failed(server_id=server_id)
       return result
@@ -357,12 +408,23 @@ class PterodactylAdapter:
       if res.status_code == 200:
         match = re.search(r'"buildid"\s+"(\d+)"', res.text)
         if match:
-          return LocalBuildResult(match.group(1), None)
-        result = LocalBuildResult(None, "File found, but could not parse 'buildid'")
+          return LocalBuildResult(match.group(1), None, status_code=200)
+        result = LocalBuildResult(
+            None,
+            "File found, but could not parse 'buildid'",
+            status_code=200,
+            error_type="ParseError",
+        )
       else:
-        result = LocalBuildResult(None, f"Panel HTTP {res.status_code}")
+        error_type = "NotFound" if res.status_code == 404 else "HttpError"
+        result = LocalBuildResult(
+            None,
+            f"Panel HTTP {res.status_code}",
+            status_code=res.status_code,
+            error_type=error_type,
+        )
     except Exception as e:
-      result = LocalBuildResult(None, f"Request error: {e}")
+      result = LocalBuildResult(None, f"Request error: {e}", error_type="RequestError")
 
     if raise_on_error:
       result.raise_if_failed(server_id=server_id)
@@ -395,10 +457,16 @@ class PterodactylAdapter:
           url, json={"name": new_name}, headers=self._headers(api_key)
       )
       if res.status_code in [200, 204]:
-        return OperationResult(True, None)
-      result = OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
+        return OperationResult(True, None, status_code=res.status_code)
+      error_type = "NotFound" if res.status_code == 404 else "HttpError"
+      result = OperationResult(
+          False,
+          f"Panel HTTP {res.status_code}: {res.text}",
+          status_code=res.status_code,
+          error_type=error_type,
+      )
     except Exception as e:
-      result = OperationResult(False, f"Request error: {e}")
+      result = OperationResult(False, f"Request error: {e}", error_type="RequestError")
 
     if raise_on_error:
       result.raise_if_failed(server_id=server_id)

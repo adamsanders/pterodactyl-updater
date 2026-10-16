@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 from app.adapters.steam_content_parser import parse_steam_content
-from app.core.config import (
+from app.core.catalogs import (
     GAME_TO_SERVER_APPID,
     POPULAR_DEDICATED_SERVERS,
     resolve_game_appid,

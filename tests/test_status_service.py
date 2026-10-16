@@ -1,7 +1,8 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.core.config import APP_VERSION, COMMIT_CODE, PORT_OFFSET_MAP, resolve_query_port
+from app.core.catalogs import PORT_OFFSET_MAP, resolve_query_port
+from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.models import AppConfigModel, ServerModel, WebhookPreview
 from app.services.status_service import StatusAggregationService
 

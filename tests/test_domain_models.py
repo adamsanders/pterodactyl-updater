@@ -77,18 +77,38 @@ class TestDomainModels(unittest.TestCase):
     # raise_if_failed success
     self.assertEqual(res.raise_if_failed(), "12345678")
 
-    # Error case
-    err_res = LocalBuildResult(build_id=None, error="File not found")
+    # Error case with structured status_code and error_type
+    err_res = LocalBuildResult(
+        build_id=None,
+        error="Manifest missing",
+        status_code=404,
+        error_type="NotFound",
+    )
     self.assertIsNone(err_res.build_id)
-    self.assertEqual(err_res.error, "File not found")
-    with self.assertRaises(DomainError) as ctx:
-      err_res.raise_if_failed()
-    self.assertIn("File not found", str(ctx.exception))
+    self.assertEqual(err_res.error, "Manifest missing")
+    self.assertEqual(err_res.status_code, 404)
+    self.assertEqual(err_res.error_type, "NotFound")
+    with self.assertRaises(PterodactylApiError) as ctx:
+      err_res.raise_if_failed(server_id="srv1")
+    self.assertEqual(ctx.exception.status_code, 404)
+    self.assertEqual(ctx.exception.server_id, "srv1")
+
+    # Explicit status_code override
+    with self.assertRaises(PterodactylApiError) as ctx_override:
+      err_res.raise_if_failed(status_code=500, server_id="srv1")
+    self.assertEqual(ctx_override.exception.status_code, 500)
+
+    # Legacy fallback parsing when status_code is None
+    legacy_err = LocalBuildResult(build_id=None, error="Panel HTTP 403: Forbidden")
+    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+      legacy_err.raise_if_failed()
+    self.assertEqual(ctx_legacy.exception.status_code, 403)
 
   def test_server_name_result_attributes_and_unpacking(self):
-    res = ServerNameResult(name="My Server", error=None)
+    res = ServerNameResult(name="My Server", error=None, status_code=200)
     self.assertEqual(res.name, "My Server")
     self.assertIsNone(res.error)
+    self.assertEqual(res.status_code, 200)
 
     # Tuple unpacking
     name, err = res
@@ -98,18 +118,38 @@ class TestDomainModels(unittest.TestCase):
     # raise_if_failed success
     self.assertEqual(res.raise_if_failed(), "My Server")
 
-    # Error case
-    err_res = ServerNameResult(name=None, error="Panel HTTP 404")
+    # Error case with structured status_code
+    err_res = ServerNameResult(
+        name=None,
+        error="Server disappeared",
+        status_code=404,
+        error_type="NotFound",
+    )
     self.assertIsNone(err_res.name)
-    self.assertEqual(err_res.error, "Panel HTTP 404")
+    self.assertEqual(err_res.error, "Server disappeared")
+    self.assertEqual(err_res.status_code, 404)
+    self.assertEqual(err_res.error_type, "NotFound")
     with self.assertRaises(PterodactylApiError) as ctx:
-      err_res.raise_if_failed(PterodactylApiError)
-    self.assertIn("Panel HTTP 404", str(ctx.exception))
+      err_res.raise_if_failed(server_id="srv_test")
+    self.assertEqual(ctx.exception.status_code, 404)
+    self.assertEqual(ctx.exception.server_id, "srv_test")
+
+    # Explicit status_code override
+    with self.assertRaises(PterodactylApiError) as ctx_override:
+      err_res.raise_if_failed(status_code=502, server_id="srv_test")
+    self.assertEqual(ctx_override.exception.status_code, 502)
+
+    # Legacy fallback parsing
+    legacy_res = ServerNameResult(name=None, error="Panel HTTP 503: Unavailable")
+    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+      legacy_res.raise_if_failed()
+    self.assertEqual(ctx_legacy.exception.status_code, 503)
 
   def test_operation_result_attributes_and_unpacking(self):
-    res = OperationResult(success=True, error=None)
+    res = OperationResult(success=True, error=None, status_code=204)
     self.assertTrue(res.success)
     self.assertIsNone(res.error)
+    self.assertEqual(res.status_code, 204)
     self.assertTrue(bool(res))
 
     # Tuple unpacking
@@ -120,19 +160,66 @@ class TestDomainModels(unittest.TestCase):
     # raise_if_failed on success
     self.assertIs(res.raise_if_failed(), res)
 
-    # Failure case
-    fail_res = OperationResult(success=False, error="Panel HTTP 500")
+    # Failure case with structured status_code and error_type
+    fail_res = OperationResult(
+        success=False,
+        error="Power node offline",
+        status_code=500,
+        error_type="HttpError",
+    )
     self.assertFalse(fail_res.success)
-    self.assertEqual(fail_res.error, "Panel HTTP 500")
+    self.assertEqual(fail_res.error, "Power node offline")
+    self.assertEqual(fail_res.status_code, 500)
+    self.assertEqual(fail_res.error_type, "HttpError")
     self.assertFalse(bool(fail_res))
 
-    with self.assertRaises(DomainError) as ctx:
-      fail_res.raise_if_failed()
-    self.assertIn("Panel HTTP 500", str(ctx.exception))
+    with self.assertRaises(PterodactylApiError) as ctx:
+      fail_res.raise_if_failed(server_id="srv5")
+    self.assertEqual(ctx.exception.status_code, 500)
+    self.assertEqual(ctx.exception.server_id, "srv5")
 
-    with self.assertRaises(PterodactylApiError) as ctx_custom:
-      fail_res.raise_if_failed(PterodactylApiError)
-    self.assertIn("Panel HTTP 500", str(ctx_custom.exception))
+    # Automatic classification by error_type
+    invalid_power = OperationResult(
+        success=False,
+        error="Unknown action foo",
+        status_code=400,
+        error_type="InvalidPowerAction",
+    )
+    with self.assertRaises(InvalidPowerActionError) as ctx_inv:
+      invalid_power.raise_if_failed()
+    self.assertEqual(ctx_inv.exception.status_code, 400)
+
+    server_not_found = OperationResult(
+        success=False,
+        error="No such server",
+        status_code=404,
+        error_type="ServerNotFound",
+    )
+    with self.assertRaises(ServerNotFoundError) as ctx_snf:
+      server_not_found.raise_if_failed(server_id="missing_srv")
+    self.assertEqual(ctx_snf.exception.status_code, 404)
+    self.assertEqual(ctx_snf.exception.server_id, "missing_srv")
+
+    config_err = OperationResult(
+        success=False,
+        error="Server ID or Panel API Key configuration is incomplete.",
+        status_code=400,
+        error_type="ConfigurationError",
+    )
+    with self.assertRaises(ConfigurationError) as ctx_cfg:
+      config_err.raise_if_failed()
+    self.assertEqual(ctx_cfg.exception.status_code, 400)
+
+    # Explicit status_code override
+    with self.assertRaises(PterodactylApiError) as ctx_override:
+      fail_res.raise_if_failed(status_code=503, server_id="srv5")
+    self.assertEqual(ctx_override.exception.status_code, 503)
+
+    # Legacy fallback parsing
+    legacy_op = OperationResult(success=False, error="Panel HTTP 500: Server crashed")
+    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+      legacy_op.raise_if_failed()
+    self.assertEqual(ctx_legacy.exception.status_code, 500)
 
 
 class TestDomainExceptions(unittest.TestCase):
@@ -280,6 +367,7 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(name_res, ServerNameResult)
     self.assertEqual(name_res.name, "Dedicated Box")
     self.assertIsNone(name_res.error)
+    self.assertEqual(name_res.status_code, 200)
 
     # 2. get_server_allocation
     mock_client.get.return_value = MagicMock(
@@ -309,6 +397,7 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(build_res, LocalBuildResult)
     self.assertEqual(build_res.build_id, "998877")
     self.assertIsNone(build_res.error)
+    self.assertEqual(build_res.status_code, 200)
 
     # 4. send_power_signal
     mock_client.post.return_value = MagicMock(status_code=204)
@@ -316,6 +405,7 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(power_res, OperationResult)
     self.assertTrue(power_res.success)
     self.assertIsNone(power_res.error)
+    self.assertEqual(power_res.status_code, 204)
 
     # 5. rename_server
     mock_client.post.return_value = MagicMock(status_code=200)
@@ -323,6 +413,25 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(rename_res, OperationResult)
     self.assertTrue(rename_res.success)
     self.assertIsNone(rename_res.error)
+    self.assertEqual(rename_res.status_code, 200)
+
+    # 6. Structured error results without raising
+    mock_client.get.return_value = MagicMock(status_code=404)
+    name_err = await adapter.get_server_name("http://panel", "key", "srv1", raise_on_error=False)
+    self.assertEqual(name_err.status_code, 404)
+    self.assertEqual(name_err.error_type, "NotFound")
+
+    mock_client.post.return_value = MagicMock(status_code=500, text="Internal error")
+    power_err = await adapter.send_power_signal("http://panel", "key", "srv1", "restart", raise_on_error=False)
+    self.assertEqual(power_err.status_code, 500)
+    self.assertEqual(power_err.error_type, "HttpError")
+
+    # 7. Server name missing in attributes with 200 OK
+    mock_client.get.return_value = MagicMock(status_code=200, json=lambda: {"attributes": {}})
+    name_parse_err = await adapter.get_server_name("http://panel", "key", "srv1", raise_on_error=False)
+    self.assertIsNone(name_parse_err.name)
+    self.assertEqual(name_parse_err.status_code, 200)
+    self.assertEqual(name_parse_err.error_type, "ParseError")
 
   async def test_pterodactyl_adapter_raise_on_error(self):
     mock_client = AsyncMock(spec=httpx.AsyncClient)

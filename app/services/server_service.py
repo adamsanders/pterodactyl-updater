@@ -184,17 +184,30 @@ class ServerService:
     try:
       sig = PowerSignal.from_str(action)
     except (ValueError, TypeError):
-      return OperationResult(False, f"Invalid power action '{action}'.")
+      return OperationResult(
+          False,
+          f"Invalid power action '{action}'.",
+          status_code=400,
+          error_type="InvalidPowerAction",
+      )
 
     cfg = self.repo.load()
     idx = self.find_server_index(cfg.servers, identifier)
     if idx is None:
-      return OperationResult(False, "Server index out of range.")
+      return OperationResult(
+          False,
+          "Server index out of range.",
+          status_code=404,
+          error_type="ServerNotFound",
+      )
 
     server = cfg.servers[idx]
     if not cfg.panel_url or not cfg.api_key or not server.server_id:
       return OperationResult(
-          False, "Server ID or Panel API Key configuration is incomplete."
+          False,
+          "Server ID or Panel API Key configuration is incomplete.",
+          status_code=400,
+          error_type="ConfigurationError",
       )
 
     # Invalidate orchestrator restart suppression on manual power signal
