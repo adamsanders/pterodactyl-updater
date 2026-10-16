@@ -12,7 +12,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertEqual(APP_VERSION, "1.17.1")
+    self.assertEqual(APP_VERSION, "1.17.2")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)
@@ -22,11 +22,26 @@ class TestAppVersionAndCommit(unittest.TestCase):
     self.assertIsInstance(COMMIT_CODE, str)
     self.assertTrue(len(COMMIT_CODE) > 0)
     self.assertLessEqual(len(COMMIT_CODE), 7)
+    self.assertNotEqual(COMMIT_CODE, "unknown")
 
   def test_resolve_commit_code_env_override(self):
     with patch.dict(os.environ, {"GIT_COMMIT": "abcdef123456"}):
       resolved = resolve_commit_code()
       self.assertEqual(resolved, "abcdef1")
+
+  def test_resolve_commit_code_ignores_unknown_env(self):
+    with patch.dict(os.environ, {"GIT_COMMIT": "unknown"}):
+      resolved = resolve_commit_code()
+      self.assertNotEqual(resolved, "unknown")
+      self.assertGreaterEqual(len(resolved), 7)
+
+  def test_resolve_commit_code_from_file_and_fallback(self):
+    with patch.dict(os.environ, {"GIT_COMMIT": ""}, clear=True), \
+         patch("subprocess.check_output", side_effect=Exception("no git")), \
+         patch("os.path.isfile", return_value=False):
+      resolved = resolve_commit_code()
+      self.assertNotEqual(resolved, "unknown")
+      self.assertGreaterEqual(len(resolved), 7)
 
   def test_fastapi_app_has_version(self):
     self.assertEqual(app.version, APP_VERSION)

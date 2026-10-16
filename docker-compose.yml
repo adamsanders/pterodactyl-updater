@@ -1,7 +1,12 @@
 services:
   updater:
-    build: .
+    build:
+      context: .
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-}
     container_name: pterodactyl-updater
+    environment:
+      - GIT_COMMIT=${GIT_COMMIT:-}
     restart: unless-stopped
     ports:
       - "8090:8080" # Maps host port 8090 to internal container port 8080
