@@ -4,7 +4,7 @@
   <div class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1">Global Status</div>
   <div class="text-sm mb-3">
     <span class="text-gray-400">Last Global Check:</span> 
-    <span id="global-last-check" class="text-white ml-1">{{ c.last_check if c else (last_check if (last_check is defined and last_check) else 'Never') }}</span>
+    <span id="global-last-check" class="text-white ml-1">{{ last_check if (last_check is defined and last_check and last_check != 'Never') else (c.last_check if (c and c.last_check) else 'Never') }}</span>
   </div>
   <button type="button" 
           id="btn-check-now" 

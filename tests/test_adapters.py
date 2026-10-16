@@ -14,7 +14,7 @@ from app.adapters.simulated_steam import SimulatedSteamAdapter
 from app.adapters.steam import SteamAdapter
 from app.core.config import TIMING_CONFIG
 from app.core.exceptions import NotificationError
-from app.core.models import PlayerMetrics, PowerSignal, PowerState
+from app.core.models import PlayerMetrics, PowerSignal, PowerState, SteamPatchNotes
 from app.core.protocols import NotificationGateway, SteamGateway
 from app.web.filters import discord_markdown
 
@@ -277,12 +277,25 @@ class TestSteamAdapterSanitization(unittest.IsolatedAsyncioTestCase):
     }
     self.mock_client.get.return_value = MagicMock(status_code=200, json=lambda: feed_response)
 
-    embed = await self.adapter.fetch_patchnotes(896660)
-    self.assertIsNotNone(embed)
+    notes = await self.adapter.fetch_patchnotes(896660)
+    self.assertIsNotNone(notes)
+    self.assertIsInstance(notes, SteamPatchNotes)
+    self.assertEqual(notes.title, "Version 1.5 Update")
+    self.assertEqual(notes.url, "https://steamcommunity.com/news/123")
+    self.assertIn("**Patch notes**", notes.content)
+    self.assertEqual(notes.image_url, "https://clan.cloudflare.steamstatic.com/banner.png")
+
+    # Verify to_embed() generation
+    embed = notes.to_embed()
     self.assertEqual(embed["title"], "📜 Version 1.5 Update")
     self.assertEqual(embed["url"], "https://steamcommunity.com/news/123")
     self.assertIn("**Patch notes**", embed["description"])
     self.assertEqual(embed["image"]["url"], "https://clan.cloudflare.steamstatic.com/banner.png")
+    self.assertEqual(embed["color"], 0x1B2838)
+
+    # Verify dict-like access backward-compatibility
+    self.assertEqual(notes["title"], "📜 Version 1.5 Update")
+    self.assertEqual(notes["url"], "https://steamcommunity.com/news/123")
 
 
 class TestA2SAdapterDatagram(unittest.IsolatedAsyncioTestCase):

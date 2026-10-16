@@ -7,6 +7,7 @@ from app.core.catalogs import (
     resolve_game_appid,
 )
 from app.core.exceptions import SteamApiError
+from app.core.models import SteamPatchNotes
 import httpx
 
 logger = logging.getLogger("updater.steam")
@@ -70,7 +71,7 @@ class SteamAdapter:
 
   async def fetch_patchnotes(
       self, appid: int | str, raise_on_error: bool = False
-  ) -> Optional[dict]:
+  ) -> Optional[SteamPatchNotes]:
     if not appid:
       return None
 
@@ -99,16 +100,14 @@ class SteamAdapter:
           elif link and link not in clean_content:
             clean_content += f"\n\n🔗 **[View Post on Steam]({link})**"
 
-          embed = {
-              "title": f"📜 {post.get('title', 'New Update Released')}",
-              "url": link,
-              "description": clean_content,
-              "color": 0x1B2838,
-              "footer": {"text": "Steam Official Announcement"},
-          }
-          if image_url:
-            embed["image"] = {"url": image_url}
-          return embed
+          date_val = str(post.get("date", "")) if post.get("date") else None
+          return SteamPatchNotes(
+              title=post.get("title", "New Update Released"),
+              content=clean_content,
+              url=link,
+              image_url=image_url,
+              posted_at=date_val,
+          )
       elif raise_on_error:
         raise SteamApiError(
             f"Steam news API returned HTTP {resp.status_code}",

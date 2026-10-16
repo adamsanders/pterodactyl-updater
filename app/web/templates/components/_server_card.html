@@ -91,11 +91,14 @@
         </span>
       </div>
       <div id="srv_builds_{{ idx }}" class="flex items-center gap-1">
-        {% if s and s.current_build == s.latest_build and s.current_build not in ['Unknown', '?', None] %}
-          <span class="text-gray-400 mr-1.5">Build:</span><span class="font-mono text-gray-200">{{ s.latest_build }}</span>
+        {% set st = runtime_states[srv_id] if (runtime_states is defined and runtime_states and srv_id in runtime_states) else None %}
+        {% set cur_build = st.current_build if st else (s.current_build if s else 'Unknown') %}
+        {% set lat_build = st.latest_build if st else (s.latest_build if s else 'Unknown') %}
+        {% if s and cur_build == lat_build and cur_build not in ['Unknown', '?', None] %}
+          <span class="text-gray-400 mr-1.5">Build:</span><span class="font-mono text-gray-200">{{ lat_build }}</span>
           <svg class="w-4 h-4 text-emerald-400 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
         {% elif s %}
-          <span class="text-gray-400 mr-1.5">Builds:</span><span class="font-mono text-gray-200">{{ s.current_build }} &rarr; {{ s.latest_build }}</span>
+          <span class="text-gray-400 mr-1.5">Builds:</span><span class="font-mono text-gray-200">{{ cur_build }} &rarr; {{ lat_build }}</span>
         {% endif %}
       </div>
     </div>

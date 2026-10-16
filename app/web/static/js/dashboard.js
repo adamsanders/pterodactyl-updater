@@ -863,6 +863,7 @@ async function pollLiveStatus() {
       "up to date",
       "update available",
       "update available — countdown started",
+      "update available (countdown active)",
       "countdown in progress...",
       "idle"
     ];

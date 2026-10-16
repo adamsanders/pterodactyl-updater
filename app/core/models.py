@@ -9,7 +9,7 @@ from app.core.exceptions import (
     PterodactylApiError,
     ServerNotFoundError,
 )
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 try:
     from enum import StrEnum
@@ -58,6 +58,40 @@ class PowerSignal(StrEnum):
             if member.value == val_str:
                 return member
         raise ValueError(f"Invalid power signal '{value}'")
+
+
+class ServerUpdateStatus(StrEnum):
+    UP_TO_DATE = "Up to date"
+    UPDATE_AVAILABLE = "Update Available"
+    COUNTDOWN_ACTIVE = "Update Available (Countdown Active)"
+    RESTART_DISPATCHED = "Restart dispatched — waiting for build update"
+    IDLE = "Idle"
+    ERROR = "Error"
+
+    @classmethod
+    def from_str(cls, value: Optional[Union["ServerUpdateStatus", str]]) -> "ServerUpdateStatus":
+        if isinstance(value, cls):
+            return value
+        val_str = (value or "").strip().lower()
+        if not val_str:
+            return cls.IDLE
+        for member in cls:
+            if member.value.lower() == val_str:
+                return member
+        # Fallback mappings for partial or legacy status strings
+        if "cancel" in val_str:
+            return cls.IDLE
+        elif "countdown" in val_str:
+            return cls.COUNTDOWN_ACTIVE
+        elif "restart" in val_str or "waiting" in val_str:
+            return cls.RESTART_DISPATCHED
+        elif "update available" in val_str:
+            return cls.UPDATE_AVAILABLE
+        elif "up to date" in val_str:
+            return cls.UP_TO_DATE
+        elif "error" in val_str or "fail" in val_str:
+            return cls.ERROR
+        return cls.IDLE
 
 
 
@@ -193,21 +227,54 @@ class OperationResult(NamedTuple):
     return self
 
 
+class SteamPatchNotes(BaseModel):
+  """Pure domain DTO encapsulating Steam community announcement metadata."""
+  title: str
+  content: str
+  url: str
+  image_url: Optional[str] = None
+  posted_at: Optional[str] = None
+
+  def to_embed(self) -> dict[str, Any]:
+    """Generates standard Discord embed presentation structure."""
+    embed: dict[str, Any] = {
+        "title": f"📜 {self.title}",
+        "url": self.url,
+        "description": self.content,
+        "color": 0x1B2838,
+        "footer": {"text": "Steam Official Announcement"},
+    }
+    if self.image_url:
+      embed["image"] = {"url": self.image_url}
+    return embed
+
+  def __getitem__(self, item: str) -> Any:
+    embed = self.to_embed()
+    if item in embed:
+      return embed[item]
+    raise KeyError(item)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    return self.to_embed().get(item, default)
+
+
 class ServerRuntimeState(BaseModel):
   """Ephemeral runtime state for a single managed game server."""
   server_id: str = ""
   current_build: str = "Unknown"
   latest_build: str = "Unknown"
-  last_status: str = "Idle"
+  last_status: Union[ServerUpdateStatus, str] = ServerUpdateStatus.IDLE
 
 
 class AppRuntimeState(BaseModel):
   """Ephemeral runtime state for the application and background updater loop."""
   last_check: str = "Never"
-  last_status: str = "Idle"
+  last_status: Union[ServerUpdateStatus, str] = ServerUpdateStatus.IDLE
 
 
 class ServerModel(BaseModel):
+  model_config = ConfigDict(extra="ignore")
+
   name: str = "New Server"
   server_id: str = ""
   app_id: str = ""
@@ -217,9 +284,47 @@ class ServerModel(BaseModel):
   warn_ingame_countdown: bool = False
   warn_discord_countdown: bool = False
   query_port_offset: int = 0
-  current_build: str = Field(default="Unknown", exclude=True)
-  latest_build: str = Field(default="Unknown", exclude=True)
-  last_status: str = Field(default="Idle", exclude=True)
+
+  # Ephemeral state private attributes for backward compatibility
+  _current_build: str = PrivateAttr(default="Unknown")
+  _latest_build: str = PrivateAttr(default="Unknown")
+  _last_status: str = PrivateAttr(default=ServerUpdateStatus.IDLE)
+
+  def __init__(self, **data: Any):
+    cur = data.pop("current_build", None)
+    lat = data.pop("latest_build", None)
+    st = data.pop("last_status", None)
+    super().__init__(**data)
+    if cur is not None:
+      self._current_build = str(cur)
+    if lat is not None:
+      self._latest_build = str(lat)
+    if st is not None:
+      self._last_status = str(st)
+
+  @property
+  def current_build(self) -> str:
+    return self._current_build
+
+  @current_build.setter
+  def current_build(self, val: str) -> None:
+    self._current_build = str(val)
+
+  @property
+  def latest_build(self) -> str:
+    return self._latest_build
+
+  @latest_build.setter
+  def latest_build(self, val: str) -> None:
+    self._latest_build = str(val)
+
+  @property
+  def last_status(self) -> str:
+    return self._last_status
+
+  @last_status.setter
+  def last_status(self, val: str) -> None:
+    self._last_status = str(val)
 
   @field_validator("query_port_offset", mode="before")
   @classmethod
@@ -249,15 +354,43 @@ class ServerModel(BaseModel):
 
 
 class AppConfigModel(BaseModel):
+  model_config = ConfigDict(extra="ignore")
+
   panel_url: str = ""
   api_key: str = ""
   check_interval: int = Field(default=15, ge=1, le=1440)
   discord_webhook: str = ""
   test_mode: bool = False
   ssl_verify: bool = False
-  last_check: str = Field(default="Never", exclude=True)
-  last_status: str = Field(default="Idle", exclude=True)
   servers: List[ServerModel] = Field(default_factory=list)
+
+  _last_check: str = PrivateAttr(default="Never")
+  _last_status: str = PrivateAttr(default=ServerUpdateStatus.IDLE)
+
+  def __init__(self, **data: Any):
+    lc = data.pop("last_check", None)
+    ls = data.pop("last_status", None)
+    super().__init__(**data)
+    if lc is not None:
+      self._last_check = str(lc)
+    if ls is not None:
+      self._last_status = str(ls)
+
+  @property
+  def last_check(self) -> str:
+    return self._last_check
+
+  @last_check.setter
+  def last_check(self, val: str) -> None:
+    self._last_check = str(val)
+
+  @property
+  def last_status(self) -> str:
+    return self._last_status
+
+  @last_status.setter
+  def last_status(self, val: str) -> None:
+    self._last_status = str(val)
 
 
 class SettingsUpdateDTO(BaseModel):
@@ -277,7 +410,7 @@ class ServerStatusDTO(BaseModel):
     power_state: PowerState
     current_build: str
     latest_build: str
-    last_status: str
+    last_status: Union[ServerUpdateStatus, str]
     target_timestamp: float
     remaining_seconds: int
     is_updating: bool

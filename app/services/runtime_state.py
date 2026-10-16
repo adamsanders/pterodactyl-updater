@@ -1,6 +1,11 @@
 import threading
-from typing import Dict, Optional
-from app.core.models import AppConfigModel, AppRuntimeState, ServerRuntimeState
+from typing import Dict, Optional, Union
+from app.core.models import (
+    AppConfigModel,
+    AppRuntimeState,
+    ServerRuntimeState,
+    ServerUpdateStatus,
+)
 
 
 class RuntimeStateStore:
@@ -22,7 +27,7 @@ class RuntimeStateStore:
   def update_global_state(
       self,
       last_check: Optional[str] = None,
-      last_status: Optional[str] = None,
+      last_status: Optional[Union[ServerUpdateStatus, str]] = None,
   ) -> AppRuntimeState:
     with self._lock:
       updates = {}
@@ -46,7 +51,7 @@ class RuntimeStateStore:
       server_id: str,
       current_build: Optional[str] = None,
       latest_build: Optional[str] = None,
-      last_status: Optional[str] = None,
+      last_status: Optional[Union[ServerUpdateStatus, str]] = None,
   ) -> ServerRuntimeState:
     s_id = str(server_id).strip().lower()
     with self._lock:
@@ -62,6 +67,29 @@ class RuntimeStateStore:
       updated = current.model_copy(update=updates)
       self._server_states[s_id] = updated
       return updated
+
+  def remove_server_state(self, server_id: str) -> None:
+    s_id = str(server_id).strip().lower()
+    with self._lock:
+      self._server_states.pop(s_id, None)
+
+  def delete_server_state(self, server_id: str) -> None:
+    self.remove_server_state(server_id)
+
+  def rename_server_state(
+      self, old_server_id: str, new_server_id: str
+  ) -> Optional[ServerRuntimeState]:
+    old_id = str(old_server_id).strip().lower()
+    new_id = str(new_server_id).strip().lower()
+    if not old_id or not new_id or old_id == new_id:
+      return None
+    with self._lock:
+      old_state = self._server_states.pop(old_id, None)
+      if old_state:
+        new_state = old_state.model_copy(update={"server_id": new_id})
+        self._server_states[new_id] = new_state
+        return new_state
+      return self.get_server_state(new_id)
 
   def get_all_server_states(self) -> Dict[str, ServerRuntimeState]:
     with self._lock:

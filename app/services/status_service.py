@@ -9,6 +9,7 @@ from app.core.models import (
     PowerState,
     ServerModel,
     ServerStatusDTO,
+    ServerUpdateStatus,
 )
 from app.core.protocols import (
     A2SGateway,
@@ -70,18 +71,19 @@ class StatusAggregationService:
     target_ts = self.countdown.get_target(srv.server_id)
     rem = self.countdown.get_remaining(srv.server_id)
 
-    cur_build = srv.current_build
-    lat_build = srv.latest_build
-    srv_status = srv.last_status
-
     if self.runtime_state and srv.server_id:
       st = self.runtime_state.get_server_state(srv.server_id)
-      if st.current_build != "Unknown":
-        cur_build = st.current_build
-      if st.latest_build != "Unknown":
-        lat_build = st.latest_build
-      if st.last_status != "Idle":
-        srv_status = st.last_status
+      cur_build = st.current_build
+      lat_build = st.latest_build
+      srv_status = st.last_status
+    elif srv:
+      cur_build = srv.current_build
+      lat_build = srv.latest_build
+      srv_status = srv.last_status
+    else:
+      cur_build = "Unknown"
+      lat_build = "Unknown"
+      srv_status = ServerUpdateStatus.IDLE
 
     is_upd = (power != PowerState.OFFLINE) and (
         self.countdown.is_running(srv.server_id)
@@ -175,14 +177,13 @@ class StatusAggregationService:
           "timestamp": active_preview.timestamp,
       }
 
-    last_check = cfg.last_check
-    last_status = cfg.last_status
     if self.runtime_state:
       gst = self.runtime_state.get_global_state()
-      if gst.last_check != "Never":
-        last_check = gst.last_check
-      if gst.last_status != "Idle":
-        last_status = gst.last_status
+      last_check = gst.last_check
+      last_status = gst.last_status
+    else:
+      last_check = cfg.last_check
+      last_status = cfg.last_status
 
     return {
         "app_version": APP_VERSION,

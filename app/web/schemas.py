@@ -1,6 +1,28 @@
-from typing import List
+from typing import List, Optional, Union
+from pydantic import BaseModel, Field
 from app.core.models import ServerModel, SettingsUpdateDTO
 from starlette.datastructures import FormData
+
+
+class SimulateBuildRequest(BaseModel):
+  """Typed JSON request body for triggering a simulated build update."""
+  build_id: str
+  server_id: Optional[Union[str, int]] = None
+  server_idx: Optional[int] = 0
+
+
+class SyncNameRequest(BaseModel):
+  """Typed JSON request body for synchronizing server name from Pterodactyl Panel."""
+  server_id: str = ""
+
+
+class SingleServerSaveRequest(BaseModel):
+  """Typed JSON request body for saving an individual server card."""
+  name: str = ""
+  server_id: str = ""
+  app_id: str = ""
+  manifest_path: str = ""
+  query_port_offset: int = 0
 
 
 class SettingsFormData:
@@ -65,9 +87,6 @@ class SettingsFormData:
               warn_ingame_countdown=get_srv_bool("srv_warningame"),
               warn_discord_countdown=get_srv_bool("srv_warndiscord"),
               query_port_offset=port_offset,
-              current_build=srv.current_build,
-              latest_build=srv.latest_build,
-              last_status=srv.last_status,
           )
       )
 

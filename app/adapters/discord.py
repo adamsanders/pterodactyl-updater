@@ -1,7 +1,8 @@
 import logging
-from typing import Optional
+from typing import Any, Optional, Union
 import httpx
 from app.core.exceptions import NotificationError
+from app.core.models import SteamPatchNotes
 
 logger = logging.getLogger("updater.discord")
 
@@ -11,11 +12,34 @@ class DiscordAdapter:
   def __init__(self, client: httpx.AsyncClient):
     self._client = client
 
+  @staticmethod
+  def create_patchnotes_embed(notes: Union[SteamPatchNotes, dict, Any]) -> dict[str, Any]:
+    """Builds a Discord embed dictionary from a SteamPatchNotes domain model or existing dictionary."""
+    if isinstance(notes, dict):
+      return notes
+    if isinstance(notes, SteamPatchNotes) or (
+        hasattr(notes, "title") and hasattr(notes, "content") and hasattr(notes, "url")
+    ):
+      embed: dict[str, Any] = {
+          "title": f"📜 {notes.title}",
+          "url": notes.url,
+          "description": notes.content,
+          "color": 0x1B2838,
+          "footer": {"text": "Steam Official Announcement"},
+      }
+      image_url = getattr(notes, "image_url", None)
+      if image_url:
+        embed["image"] = {"url": image_url}
+      return embed
+    if hasattr(notes, "to_embed"):
+      return notes.to_embed()
+    return {}
+
   async def send_notification(
       self,
       webhook_url: str,
       message: Optional[str] = None,
-      embed: Optional[dict] = None,
+      embed: Optional[Union[dict, SteamPatchNotes]] = None,
   ) -> None:
     if not webhook_url:
       return
@@ -24,7 +48,9 @@ class DiscordAdapter:
     if message:
       payload["content"] = message
     if embed:
-      payload["embeds"] = [embed]
+      embed_payload = self.create_patchnotes_embed(embed)
+      if embed_payload:
+        payload["embeds"] = [embed_payload]
 
     if not payload:
       return

@@ -12,6 +12,8 @@ from app.core.models import (
     ServerModel,
     ServerNameResult,
     ServerRuntimeState,
+    ServerUpdateStatus,
+    SteamPatchNotes,
 )
 
 
@@ -23,7 +25,7 @@ class RuntimeStateStoreProtocol(Protocol):
   def update_global_state(
       self,
       last_check: Optional[str] = None,
-      last_status: Optional[str] = None,
+      last_status: Optional[Union[ServerUpdateStatus, str]] = None,
   ) -> AppRuntimeState:
     ...
 
@@ -35,8 +37,19 @@ class RuntimeStateStoreProtocol(Protocol):
       server_id: str,
       current_build: Optional[str] = None,
       latest_build: Optional[str] = None,
-      last_status: Optional[str] = None,
+      last_status: Optional[Union[ServerUpdateStatus, str]] = None,
   ) -> ServerRuntimeState:
+    ...
+
+  def remove_server_state(self, server_id: str) -> None:
+    ...
+
+  def delete_server_state(self, server_id: str) -> None:
+    ...
+
+  def rename_server_state(
+      self, old_server_id: str, new_server_id: str
+  ) -> Optional[ServerRuntimeState]:
     ...
 
   def get_all_server_states(self) -> dict[str, ServerRuntimeState]:
@@ -157,7 +170,9 @@ class SteamGateway(Protocol):
   ) -> Optional[str]:
     ...
 
-  async def fetch_patchnotes(self, appid: int | str) -> Optional[dict]:
+  async def fetch_patchnotes(
+      self, appid: int | str
+  ) -> Optional[Union[SteamPatchNotes, dict]]:
     ...
 
   async def search_games(self, query: str) -> list[dict]:
@@ -184,7 +199,7 @@ class NotificationGateway(Protocol):
       self,
       webhook_url: str,
       message: Optional[str] = None,
-      embed: Optional[dict] = None,
+      embed: Optional[Union[dict, SteamPatchNotes]] = None,
   ) -> None:
     ...
 

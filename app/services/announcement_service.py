@@ -1,9 +1,10 @@
 from datetime import datetime
 import logging
-from typing import Optional
+from typing import Optional, Union
+from app.adapters.discord import DiscordAdapter
 from app.core.config import TIMING_CONFIG
 from app.core.exceptions import NotificationError
-from app.core.models import ServerModel, WebhookPreview
+from app.core.models import ServerModel, SteamPatchNotes, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     NotificationGateway,
@@ -63,7 +64,9 @@ class AnnouncementService:
     ):
       embed = None
       if include_patchnotes and self.steam:
-        embed = await self.steam.fetch_patchnotes(server.app_id)
+        notes = await self.steam.fetch_patchnotes(server.app_id)
+        if notes:
+          embed = notes
 
       await self.dispatch_notification(
           server_name=server.name,
@@ -78,17 +81,20 @@ class AnnouncementService:
     cfg = self.repo.load()
     embed = None
     if self.steam:
-      embed = await self.steam.fetch_patchnotes(server.app_id)
+      notes = await self.steam.fetch_patchnotes(server.app_id)
+      if notes:
+        embed = notes
 
     msg = f"🧪 **[TEST ALERT]** Testing webhook dispatch for **{server.name}**."
 
     if cfg.test_mode:
+      embed_dict = DiscordAdapter.create_patchnotes_embed(embed) if embed else None
       if self.preview_store:
         self.preview_store.set_preview(
             WebhookPreview(
                 server_name=server.name,
                 message=msg,
-                embed=embed,
+                embed=embed_dict,
                 timestamp=datetime.now().strftime("%I:%M %p"),
             )
         )
@@ -108,18 +114,19 @@ class AnnouncementService:
       self,
       server_name: str,
       message: str,
-      embed: Optional[dict] = None,
+      embed: Optional[Union[dict, SteamPatchNotes]] = None,
       test_mode: bool = False,
       webhook_url: str = "",
   ) -> None:
     """Dispatches payload to live Discord webhook or the in-memory test simulator preview."""
+    embed_dict = DiscordAdapter.create_patchnotes_embed(embed) if embed else None
     if test_mode:
       if self.preview_store:
         self.preview_store.set_preview(
             WebhookPreview(
                 server_name=server_name,
                 message=message,
-                embed=embed,
+                embed=embed_dict,
                 timestamp=datetime.now().strftime("%I:%M %p"),
             )
         )

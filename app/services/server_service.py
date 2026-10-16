@@ -11,6 +11,7 @@ from app.core.models import (
     OperationResult,
     PowerSignal,
     ServerModel,
+    ServerUpdateStatus,
     SettingsUpdateDTO,
     WebhookPreview,
 )
@@ -83,6 +84,16 @@ class ServerService:
     cfg.servers = list(settings.servers)
     self.repo.save(cfg)
 
+    if self.runtime_state:
+      new_ids = {str(s.server_id).strip().lower() for s in settings.servers if s.server_id}
+      existing_ids = list(self.runtime_state.get_all_server_states().keys())
+      for old_id in existing_ids:
+        if old_id not in new_ids:
+          self.runtime_state.remove_server_state(old_id)
+      for s in settings.servers:
+        if s.server_id:
+          self.runtime_state.get_server_state(s.server_id)
+
   def add_server(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
@@ -94,6 +105,16 @@ class ServerService:
     cfg.servers = list(settings.servers)
     cfg.servers.append(ServerModel())
     self.repo.save(cfg)
+
+    if self.runtime_state:
+      new_ids = {str(s.server_id).strip().lower() for s in cfg.servers if s.server_id}
+      existing_ids = list(self.runtime_state.get_all_server_states().keys())
+      for old_id in existing_ids:
+        if old_id not in new_ids:
+          self.runtime_state.remove_server_state(old_id)
+      for s in cfg.servers:
+        if s.server_id:
+          self.runtime_state.get_server_state(s.server_id)
 
   def find_server_index(
       self, servers: List[ServerModel], identifier: Union[str, int]
@@ -131,9 +152,20 @@ class ServerService:
     cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
     target_idx = self.find_server_index(cfg.servers, identifier)
+    removed_server_id = None
     if target_idx is not None:
-      cfg.servers.pop(target_idx)
+      removed_srv = cfg.servers.pop(target_idx)
+      removed_server_id = removed_srv.server_id
     self.repo.save(cfg)
+    if self.runtime_state:
+      if removed_server_id:
+        self.runtime_state.remove_server_state(removed_server_id)
+      elif isinstance(identifier, str):
+        self.runtime_state.remove_server_state(identifier)
+      active_ids = {str(s.server_id).strip().lower() for s in cfg.servers if s.server_id}
+      for old_id in list(self.runtime_state.get_all_server_states().keys()):
+        if old_id not in active_ids:
+          self.runtime_state.remove_server_state(old_id)
 
   async def rename_server(
       self, identifier: Union[str, int], new_name: str, settings: SettingsUpdateDTO
@@ -293,11 +325,11 @@ class ServerService:
       for srv in cfg.servers:
         if self.countdown.is_running(srv.server_id):
           self.countdown.stop(srv.server_id)
-          srv.last_status = "Test mode disabled — countdown cancelled"
+          srv.last_status = ServerUpdateStatus.IDLE
           if self.runtime_state:
             self.runtime_state.update_server_state(
                 srv.server_id,
-                last_status="Test mode disabled — countdown cancelled",
+                last_status=ServerUpdateStatus.IDLE,
             )
     self.repo.save(cfg)
     if self.orchestrator:
@@ -353,10 +385,18 @@ class ServerService:
           "Server name could not be resolved from panel.", server_id=sid
       )
 
+    old_sid = cfg.servers[idx].server_id
     cfg.servers[idx].name = res.name
     if server_id_override:
       cfg.servers[idx].server_id = sid
     self.repo.save(cfg)
+    if (
+        self.runtime_state
+        and server_id_override
+        and old_sid
+        and old_sid.strip().lower() != sid.strip().lower()
+    ):
+      self.runtime_state.rename_server_state(old_sid, sid)
     return res.name
 
   def update_server_toggle(
@@ -392,6 +432,7 @@ class ServerService:
       raise ServerNotFoundError(str(identifier))
 
     srv = cfg.servers[idx]
+    old_server_id = srv.server_id
     if "server_id" in data:
       srv.server_id = str(data["server_id"]).strip()
     if "app_id" in data:
@@ -433,6 +474,11 @@ class ServerService:
         if name_input:
           srv.name = name_input
     self.repo.save(cfg)
+    if self.runtime_state:
+      if old_server_id and old_server_id.strip().lower() != srv.server_id.strip().lower():
+        self.runtime_state.rename_server_state(old_server_id, srv.server_id)
+      elif srv.server_id:
+        self.runtime_state.get_server_state(srv.server_id)
     return srv
 
   async def detect_server_details(self, server_id: str) -> dict:

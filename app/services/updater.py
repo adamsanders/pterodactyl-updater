@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from app.core.config import TIMING_CONFIG
-from app.core.models import PowerState, ServerModel
+from app.core.models import PowerState, ServerModel, ServerUpdateStatus
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -134,23 +134,23 @@ class UpdateOrchestrator:
     if read_error:
       server.last_status = f"Error: {read_error}"
     elif not latest_build:
-      server.last_status = "Error: Unreachable SteamCMD API"
+      server.last_status = f"{ServerUpdateStatus.ERROR}: Unreachable SteamCMD API"
     elif latest_build == local_build:
       if self.countdown.is_running(server.server_id):
         self.countdown.stop(server.server_id)
       self._restarted_builds.pop(server.server_id, None)
-      server.last_status = "Up to date"
+      server.last_status = ServerUpdateStatus.UP_TO_DATE
     else:
       if self.countdown.is_running(server.server_id):
-        server.last_status = "Update Available — Countdown Started"
+        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
       elif self._restarted_builds.get(server.server_id) == latest_build:
-        server.last_status = "Restart dispatched — waiting for build update"
+        server.last_status = ServerUpdateStatus.RESTART_DISPATCHED
       elif server.auto_restart and p_state == PowerState.RUNNING:
-        server.last_status = "Update Available — Countdown Started"
+        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
         task = asyncio.create_task(self.delayed_restart_routine(server))
         self.countdown.attach_task(server.server_id, task)
       else:
-        server.last_status = "Update Available"
+        server.last_status = ServerUpdateStatus.UPDATE_AVAILABLE
 
     if self.runtime_state and server.server_id:
       self.runtime_state.update_server_state(

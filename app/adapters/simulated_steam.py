@@ -1,5 +1,6 @@
 import logging
-from typing import Optional
+from typing import Optional, Union
+from app.core.models import SteamPatchNotes
 from app.core.protocols import ConfigRepositoryProtocol, SteamGateway
 from app.services.build_simulator import BuildSimulatorStore
 
@@ -39,7 +40,9 @@ class SimulatedSteamAdapter:
 
     return await self._real_steam.get_latest_build(app_id)
 
-  async def fetch_patchnotes(self, appid: int | str) -> Optional[dict]:
+  async def fetch_patchnotes(
+      self, appid: int | str
+  ) -> Optional[Union[SteamPatchNotes, dict]]:
     return await self._real_steam.fetch_patchnotes(appid)
 
   async def search_games(self, query: str) -> list[dict]:

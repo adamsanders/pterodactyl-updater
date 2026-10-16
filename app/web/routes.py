@@ -8,7 +8,7 @@ from app.core.exceptions import (
     ServerNotFoundError,
     SimulationError,
 )
-from app.core.models import PowerSignal
+from app.core.models import PowerSignal, ServerUpdateStatus
 from app.core.protocols import (
     CallTrackerProtocol,
     ConfigRepositoryProtocol,
@@ -30,7 +30,12 @@ from app.web.dependencies import (
     get_service,
     get_status_service,
 )
-from app.web.schemas import SettingsFormData
+from app.web.schemas import (
+    SettingsFormData,
+    SimulateBuildRequest,
+    SingleServerSaveRequest,
+    SyncNameRequest,
+)
 from app.web.templating import templates
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -48,20 +53,22 @@ async def dashboard(
     runtime_state: Optional[RuntimeStateStoreProtocol] = Depends(get_runtime_state),
 ):
   cfg = repo.load()
+  last_check = "Never"
+  runtime_states = {}
   if runtime_state:
     gst = runtime_state.get_global_state()
-    if gst.last_check != "Never":
-      cfg.last_check = gst.last_check
-    if gst.last_status != "Idle":
-      cfg.last_status = gst.last_status
+    last_check = gst.last_check
     for srv in cfg.servers:
-      st = runtime_state.get_server_state(srv.server_id)
-      if st.current_build != "Unknown":
+      if srv.server_id:
+        st = runtime_state.get_server_state(srv.server_id)
+        runtime_states[srv.server_id] = st
         srv.current_build = st.current_build
-      if st.latest_build != "Unknown":
         srv.latest_build = st.latest_build
-      if st.last_status != "Idle":
-        srv.last_status = st.last_status
+        srv.last_status = ServerUpdateStatus.from_str(st.last_status)
+      else:
+        srv.last_status = ServerUpdateStatus.IDLE
+  else:
+    last_check = cfg.last_check
 
   preview = preview_store.get_preview() if preview_store else None
 
@@ -70,6 +77,8 @@ async def dashboard(
       name="dashboard.html",
       context={
           "cfg": cfg,
+          "last_check": last_check,
+          "runtime_states": runtime_states,
           "countdown": countdown,
           "preview": preview,
           "app_version": APP_VERSION,
@@ -119,14 +128,11 @@ async def toggle_test_mode(
 
 @router.post("/api/test/simulate-build")
 async def simulate_build(
-    request: Request,
+    payload: SimulateBuildRequest,
     service: ServerService = Depends(get_service),
 ):
-  data = await request.json()
-  server_ident = data.get("server_id")
-  if server_ident is None:
-    server_ident = data.get("server_idx", 0)
-  build_id = str(data.get("build_id", "")).strip()
+  server_ident = payload.server_id if payload.server_id is not None else payload.server_idx
+  build_id = str(payload.build_id).strip()
 
   await service.trigger_simulated_build(server_ident, build_id)
   return JSONResponse({"status": "ok", "build_id": build_id})
@@ -170,17 +176,10 @@ async def search_steam_games(
 @router.post("/api/servers/{server_id}/sync-name")
 async def sync_server_name(
     server_id: str,
-    request: Request,
+    payload: Optional[SyncNameRequest] = None,
     service: ServerService = Depends(get_service),
 ):
-  sid_override = None
-  try:
-    body = await request.json()
-    if isinstance(body, dict):
-      sid_override = body.get("server_id")
-  except Exception:
-    pass
-
+  sid_override = payload.server_id if payload and payload.server_id else None
   name = await service.sync_server_name(
       server_id, server_id_override=sid_override
   )
@@ -203,15 +202,10 @@ async def toggle_server_setting(
 @router.post("/api/servers/{server_id}/save")
 async def save_single_server_route(
     server_id: str,
-    request: Request,
+    payload: SingleServerSaveRequest,
     service: ServerService = Depends(get_service),
 ):
-  try:
-    body = await request.json()
-  except Exception:
-    form = await request.form()
-    body = dict(form)
-  updated = await service.save_single_server(server_id, body)
+  updated = await service.save_single_server(server_id, payload.model_dump())
   return JSONResponse({"status": "ok", "server": updated.model_dump()})
 
 
