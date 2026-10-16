@@ -4,6 +4,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from typing import Optional
 from app.core.config import CONFIG_PATH
 from app.core.exceptions import ConfigurationError
@@ -66,8 +67,15 @@ class ConfigRepository:
           temp_file.flush()
           os.fsync(temp_file.fileno())
 
-        # 3. Atomically replace the destination file
-        os.replace(temp_path, self.filepath)
+        # 3. Atomically replace the destination file (with retry for transient Windows file locks)
+        for attempt in range(5):
+          try:
+            os.replace(temp_path, self.filepath)
+            break
+          except PermissionError:
+            if attempt == 4:
+              raise
+            time.sleep(0.02)
         temp_path = None
 
         # 4. Update in-memory cache

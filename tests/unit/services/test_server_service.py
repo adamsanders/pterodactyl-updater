@@ -267,6 +267,49 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     dto = await SettingsFormData.from_form(form, current_servers)
     self.assertEqual(dto.servers[0].query_port_offset, 15)
 
+  async def test_form_data_parser_preserves_reordered_server_keys(self):
+    # Simulates drag-and-drop where Server 1 was moved before Server 0 in the DOM form submission
+    form = FormData([
+        ("panel_url", "http://form.test"),
+        ("api_key", "ptlc_secret"),
+        ("srv_id_1", "srv-beta"),
+        ("srv_name_srv-beta", "Creative Server"),
+        ("srv_appid_1", "294100"),
+        ("srv_manifest_1", "steamapps/appmanifest_294100.acf"),
+        ("srv_port_offset_1", "10"),
+        ("srv_autorestart_1", "false"),
+        ("srv_discord_1", "true"),
+        ("srv_id_0", "srv-alpha"),
+        ("srv_name_srv-alpha", "Survival Server"),
+        ("srv_appid_0", "896660"),
+        ("srv_manifest_0", "steamapps/appmanifest_896660.acf"),
+        ("srv_port_offset_0", "2"),
+        ("srv_autorestart_0", "true"),
+        ("srv_discord_0", "false"),
+    ])
+    current_servers = [
+        ServerModel(name="Survival Server", server_id="srv-alpha", current_build="100"),
+        ServerModel(name="Creative Server", server_id="srv-beta", current_build="200"),
+    ]
+    dto = await SettingsFormData.from_form(form, current_servers)
+
+    self.assertEqual(len(dto.servers), 2)
+    # Server 1 should now be first
+    self.assertEqual(dto.servers[0].server_id, "srv-beta")
+    self.assertEqual(dto.servers[0].name, "Creative Server")
+    self.assertEqual(dto.servers[0].current_build, "200")
+    self.assertEqual(dto.servers[0].query_port_offset, 10)
+    self.assertFalse(dto.servers[0].auto_restart)
+    self.assertTrue(dto.servers[0].discord_alerts)
+
+    # Server 0 should now be second
+    self.assertEqual(dto.servers[1].server_id, "srv-alpha")
+    self.assertEqual(dto.servers[1].name, "Survival Server")
+    self.assertEqual(dto.servers[1].current_build, "100")
+    self.assertEqual(dto.servers[1].query_port_offset, 2)
+    self.assertTrue(dto.servers[1].auto_restart)
+    self.assertFalse(dto.servers[1].discord_alerts)
+
   async def test_form_data_parser_parses_ssl_verify(self):
     # Test "true", "True", "1", "on", "yes", "YES", " true ", " 1 ", True
     for val in ("true", "True", "1", "on", "yes", "YES", " true ", " 1 ", True):

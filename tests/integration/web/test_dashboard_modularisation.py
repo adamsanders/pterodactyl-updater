@@ -13,7 +13,7 @@ class TestDashboardModularisation(unittest.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    cls.base_dir = Path(__file__).resolve().parent.parent
+    cls.base_dir = Path(__file__).resolve().parents[3]
     cls.templates_dir = cls.base_dir / "app" / "web" / "templates"
     cls.components_dir = cls.templates_dir / "components"
     cls.static_js_dir = cls.base_dir / "app" / "web" / "static" / "js"
@@ -121,12 +121,31 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertIn("function pollLiveStatus", res.text)
     self.assertIn("function triggerPowerAction", res.text)
 
+  def test_all_es_modules_served(self):
+    modules = [
+        "toast.js",
+        "domUtils.js",
+        "statusPoller.js",
+        "serverCard.js",
+        "steamSearch.js",
+        "consoleDrawer.js",
+        "simulatorModal.js",
+        "dragDrop.js",
+    ]
+    for mod in modules:
+      mod_path = self.static_js_dir / "modules" / mod
+      self.assertTrue(mod_path.exists(), f"Module missing on disk: {mod_path}")
+      res = self.client.get(f"/static/js/modules/{mod}")
+      self.assertEqual(res.status_code, 200, f"Module not served: {mod}")
+      self.assertIn("application/javascript", res.headers.get("content-type", "") or "text/javascript")
+      self.assertGreater(len(res.text), 50)
+
   def test_dashboard_renders_all_components(self):
     res = self.client.get("/")
     self.assertEqual(res.status_code, 200)
 
     # Static script link
-    self.assertIn('<script src="/static/js/dashboard.js"></script>', res.text)
+    self.assertIn('<script type="module" src="/static/js/dashboard.js"></script>', res.text)
 
     # Settings panel elements
     self.assertIn("Global Panel Settings", res.text)
