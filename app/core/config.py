@@ -7,7 +7,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.14.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.15.0")
 
 # Steam redistributable / auxiliary tool App IDs that must never be treated as game servers
 IGNORED_STEAM_APPIDS: set[str] = {

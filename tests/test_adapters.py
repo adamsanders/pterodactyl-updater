@@ -241,60 +241,22 @@ class TestSteamAdapterSanitization(unittest.IsolatedAsyncioTestCase):
     self.mock_client = AsyncMock(spec=httpx.AsyncClient)
     self.adapter = SteamAdapter(self.mock_client)
 
-  def test_clean_content_bbcode_formatting(self):
-    bbcode = (
-        "[b]Bold Announcement[/b]\n"
-        "[i]Italic notes[/i]\n"
-        "[u]Underlined text[/u]\n"
-        "[strike]Obsolete build[/strike]\n"
-        "[h2]Patch 1.2 Notes[/h2]\n"
-        "[url=https://store.steampowered.com]Steam Store[/url]\n"
-        "[list][*]Fixed bug 1[*]Fixed bug 2[/list]"
-    )
-    cleaned, img = self.adapter._clean_content(bbcode)
-    self.assertIn("**Bold Announcement**", cleaned)
-    self.assertIn("*Italic notes*", cleaned)
-    self.assertIn("__Underlined text__", cleaned)
-    self.assertIn("~~Obsolete build~~", cleaned)
-    self.assertIn("### Patch 1.2 Notes", cleaned)
-    self.assertIn("[Steam Store](https://store.steampowered.com)", cleaned)
-    self.assertIn("• Fixed bug 1", cleaned)
-    self.assertIn("• Fixed bug 2", cleaned)
+  def test_clean_content_delegation_and_backward_compatibility(self):
+    sample = "[b]Update[/b]\nDetails here"
+    # Instance method call
+    cleaned, img = self.adapter._clean_content(sample)
+    self.assertEqual(cleaned, "**Update**\nDetails here")
     self.assertIsNone(img)
 
-  def test_clean_content_html_formatting(self):
-    raw_html = (
-        "<b>Important Update</b><br>"
-        "<i>Performance fixes</i><br>"
-        "<s>Deprecated feature</s><br>"
-        "<h4>Changelog</h4>"
-        "<a href='https://example.com'>Details</a>"
-        "<ul><li>Server stability improvements</li></ul>"
-    )
-    cleaned, img = self.adapter._clean_content(raw_html)
-    self.assertIn("**Important Update**", cleaned)
-    self.assertIn("*Performance fixes*", cleaned)
-    self.assertIn("~~Deprecated feature~~", cleaned)
-    self.assertIn("### Changelog", cleaned)
-    self.assertIn("[Details](https://example.com)", cleaned)
-    self.assertIn("• Server stability improvements", cleaned)
+    # Class-level static call
+    cleaned_cls, img_cls = SteamAdapter._clean_content(sample)
+    self.assertEqual(cleaned_cls, "**Update**\nDetails here")
+    self.assertIsNone(img_cls)
 
-  def test_clean_content_steam_clan_image_replacement(self):
-    text_with_bb_img = "[img]{STEAM_CLAN_IMAGE}/12345/hero.png[/img]\nMajor Content Release!"
-    cleaned, img = self.adapter._clean_content(text_with_bb_img)
-    self.assertEqual(img, "https://clan.cloudflare.steamstatic.com/images/12345/hero.png")
-    self.assertIn("Major Content Release!", cleaned)
-    self.assertNotIn("[img]", cleaned)
-
-    text_with_html_img = "<img src='https://cdn.akamai.steamstatic.com/banner.jpg'><p>Notes</p>"
-    cleaned2, img2 = self.adapter._clean_content(text_with_html_img)
-    self.assertEqual(img2, "https://cdn.akamai.steamstatic.com/banner.jpg")
-
-  def test_clean_content_html_entities_and_excessive_whitespace(self):
-    text = "Items &amp; Inventory &mdash; &quot;Quests&#39;&quot;\n\n\n\n\nFixed balance."
-    cleaned, _ = self.adapter._clean_content(text)
-    self.assertIn("Items & Inventory — \"Quests'\"", cleaned)
-    self.assertNotIn("\n\n\n", cleaned)
+    # Default / None handling
+    empty_cleaned, empty_img = self.adapter._clean_content()
+    self.assertEqual(empty_cleaned, "")
+    self.assertIsNone(empty_img)
 
   async def test_fetch_patchnotes_parses_feed(self):
     feed_response = {

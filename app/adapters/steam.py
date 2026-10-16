@@ -1,8 +1,6 @@
-import html
-import json
 import logging
-import re
-from typing import Optional, Tuple
+from typing import Optional
+from app.adapters.steam_content_parser import parse_steam_content
 from app.core.config import (
     GAME_TO_SERVER_APPID,
     POPULAR_DEDICATED_SERVERS,
@@ -65,97 +63,10 @@ class SteamAdapter:
         raise SteamApiError(f"SteamCMD connection error: {e}", app_id=app_id)
     return None
 
-  def _clean_content(self, text: str) -> Tuple[str, Optional[str]]:
-    image_url = None
-    bb_img = re.search(r"\[img\](.*?)\[/img\]", text, re.IGNORECASE)
-    if bb_img:
-      image_url = bb_img.group(1).strip()
-    else:
-      html_img = re.search(
-          r"""<img\s+[^>]*?src=["'](.*?)["']""", text, re.IGNORECASE
-      )
-      if html_img:
-        image_url = html_img.group(1).strip()
-
-    if image_url and "{STEAM_CLAN_IMAGE}" in image_url:
-      image_url = image_url.replace(
-          "{STEAM_CLAN_IMAGE}", "https://clan.cloudflare.steamstatic.com/images"
-      )
-
-    text = re.sub(
-        r"""<a\s+[^>]*?href=["'](.*?)["'][^>]*?>(.*?)</a>""",
-        r"[\2](\1)",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"<h[1-6][^>]*>(.*?)</h[1-6]>",
-        r"\n### \1\n",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"<(?:b|strong)[^>]*>(.*?)</(?:b|strong)>",
-        r"**\1**",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"<(?:i|em)[^>]*>(.*?)</(?:i|em)>",
-        r"*\1*",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"<(?:strike|s|del)[^>]*>(.*?)</(?:strike|s|del)>",
-        r"~~\1~~",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"<li[^>]*>(.*?)</li>", r"• \1\n", text, flags=re.IGNORECASE | re.DOTALL
-    )
-    text = re.sub(r"<br\s*/?>", r"\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"</p>", r"\n\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"</div>", r"\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(
-        r"\[b\](.*?)\[/b\]", r"**\1**", text, flags=re.IGNORECASE | re.DOTALL
-    )
-    text = re.sub(
-        r"\[i\](.*?)\[/i\]", r"*\1*", text, flags=re.IGNORECASE | re.DOTALL
-    )
-    text = re.sub(
-        r"\[u\](.*?)\[/u\]", r"__\1__", text, flags=re.IGNORECASE | re.DOTALL
-    )
-    text = re.sub(
-        r"\[strike\](.*?)\[/strike\]",
-        r"~~\1~~",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"\[h[1-6]\](.*?)\[/h[1-6]\]",
-        r"\n### \1\n",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(
-        r"\[url=(.*?)\](.*?)\[/url\]",
-        r"[\2](\1)",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    text = re.sub(r"\[/?list\]", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\[\*\]", "• ", text, flags=re.IGNORECASE)
-    text = re.sub(
-        r"\[img\].*?\[/img\]", "", text, flags=re.IGNORECASE | re.DOTALL
-    )
-    text = re.sub(r"\[/?[a-zA-Z0-9_\-=:\.\s\"']+\](?!\()", "", text)
-
-    text = html.unescape(text)
-    cleaned = "\n".join([line.strip() for line in text.split("\n")])
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip(), image_url
+  @staticmethod
+  def _clean_content(text: Optional[str] = None) -> tuple[str, Optional[str]]:
+    """Legacy forwarding wrapper delegating content parsing to parse_steam_content."""
+    return parse_steam_content(text)
 
   async def fetch_patchnotes(
       self, appid: int | str, raise_on_error: bool = False
