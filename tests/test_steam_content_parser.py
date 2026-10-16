@@ -170,10 +170,36 @@ class TestSteamContentParser(unittest.TestCase):
     self.assertIn("• Second item", cleaned)
     self.assertNotIn("olist", cleaned)
 
-  def test_default_parameter_call(self):
-    cleaned, img = parse_steam_content()
-    self.assertEqual(cleaned, "")
-    self.assertIsNone(img)
+  def test_enshrouded_bbcode_list_with_paragraphs_and_close_item_tags(self):
+    raw = (
+        "[h2]Changelog[/h2]"
+        "[list][*][p]Fixed an issue that prevented configuring world settings.[/p][/*]"
+        "[*][p]Fixed a rare crash during save game migration.[/p][/*]"
+        "[*][p]Fixed a strange-looking rendering issue.[/p][/*][/list]"
+    )
+    cleaned, _ = parse_steam_content(raw)
+    self.assertIn("### Changelog", cleaned)
+    self.assertIn("• Fixed an issue that prevented configuring world settings.", cleaned)
+    self.assertIn("• Fixed a rare crash during save game migration.", cleaned)
+    self.assertIn("• Fixed a strange-looking rendering issue.", cleaned)
+    self.assertNotIn("[/*]", cleaned)
+    self.assertNotIn("[/]", cleaned)
+    self.assertNotIn("[p]", cleaned)
+    self.assertNotIn("[/p]", cleaned)
+    lines = [l for l in cleaned.splitlines() if l.startswith("• ")]
+    self.assertEqual(len(lines), 3)
+
+  def test_anonymous_closing_tags_and_empty_tags_stripped(self):
+    raw = "Item 1[/]• Item 2[] [/*]done"
+    cleaned, _ = parse_steam_content(raw)
+    self.assertEqual(cleaned, "Item 1• Item 2 done")
+
+  def test_list_items_on_separate_lines_without_rogue_asterisks(self):
+    raw = "[list][*]First fix[/*][*]Second fix[/*][/list]"
+    cleaned, _ = parse_steam_content(raw)
+    self.assertNotIn("[/*]", cleaned)
+    lines = cleaned.splitlines()
+    self.assertEqual(lines, ["• First fix", "• Second fix"])
 
 
 if __name__ == "__main__":

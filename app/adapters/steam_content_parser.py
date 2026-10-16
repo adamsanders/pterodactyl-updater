@@ -43,10 +43,13 @@ _BB_URL_PATTERN = re.compile(
     r"""\[url=["']?(.*?)["']?\](.*?)\[/url\]""", re.IGNORECASE | re.DOTALL
 )
 _BB_LIST_PATTERN = re.compile(r"\[/?(?:olist|list)\]", re.IGNORECASE)
-_BB_LIST_ITEM_PATTERN = re.compile(r"\[\*\]", re.IGNORECASE)
+_BB_LIST_ITEM_END_PATTERN = re.compile(r"\[/p\]\s*\[/\*\]|\[/\*\]", re.IGNORECASE)
+_BB_LIST_ITEM_PATTERN = re.compile(r"\[\*\](?:\s*\[p\])?", re.IGNORECASE)
+_BB_P_CLOSE_PATTERN = re.compile(r"\[/p\]", re.IGNORECASE)
+_BB_P_OPEN_PATTERN = re.compile(r"\[p\]", re.IGNORECASE)
 _BB_IMG_STRIP_PATTERN = re.compile(r"\[img\].*?\[/img\]", re.IGNORECASE | re.DOTALL)
 _BB_TAGS_STRIP_PATTERN = re.compile(
-    r"\[/?[a-zA-Z0-9_\-=:\.\s\"';,/&]+\](?!\()"
+    r"\[/?[a-zA-Z0-9_\-=:\.\s\"';,/&\*]*\](?!\()"
 )
 
 # Newline normalization
@@ -100,8 +103,11 @@ def parse_steam_content(text: Optional[str] = None) -> tuple[str, Optional[str]]
   text = _BB_STRIKE_PATTERN.sub(r"~~\1~~", text)
   text = _BB_H_PATTERN.sub(r"\n### \1\n", text)
   text = _BB_URL_PATTERN.sub(r"[\2](\1)", text)
-  text = _BB_LIST_PATTERN.sub("", text)
-  text = _BB_LIST_ITEM_PATTERN.sub("• ", text)
+  text = _BB_LIST_PATTERN.sub("\n", text)
+  text = _BB_LIST_ITEM_END_PATTERN.sub("", text)
+  text = _BB_LIST_ITEM_PATTERN.sub(r"\n• ", text)
+  text = _BB_P_CLOSE_PATTERN.sub("\n\n", text)
+  text = _BB_P_OPEN_PATTERN.sub("", text)
   text = _BB_IMG_STRIP_PATTERN.sub("", text)
   text = _BB_TAGS_STRIP_PATTERN.sub("", text)
 
