@@ -544,6 +544,36 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     self.assertEqual(dumped["servers"][0]["query_port_offset"], 0)
     self.assertEqual(dumped["servers"][1]["query_port_offset"], 15)
 
+  def test_app_config_model_ssl_verify_default_and_custom(self):
+    from app.core.models import AppConfigModel
+    cfg_default = AppConfigModel()
+    self.assertFalse(cfg_default.ssl_verify)
+
+    cfg_verified = AppConfigModel(ssl_verify=True)
+    self.assertTrue(cfg_verified.ssl_verify)
+
+    dumped = cfg_verified.model_dump()
+    self.assertIn("ssl_verify", dumped)
+    self.assertIs(dumped["ssl_verify"], True)
+
+    restored = AppConfigModel.model_validate({"ssl_verify": True})
+    self.assertTrue(restored.ssl_verify)
+
+  def test_settings_update_dto_ssl_verify_default_and_custom(self):
+    from app.core.models import SettingsUpdateDTO
+    dto_default = SettingsUpdateDTO()
+    self.assertFalse(dto_default.ssl_verify)
+
+    dto_verified = SettingsUpdateDTO(ssl_verify=True)
+    self.assertTrue(dto_verified.ssl_verify)
+
+    dumped = dto_verified.model_dump()
+    self.assertIn("ssl_verify", dumped)
+    self.assertIs(dumped["ssl_verify"], True)
+
+    restored = SettingsUpdateDTO.model_validate({"ssl_verify": True})
+    self.assertTrue(restored.ssl_verify)
+
 
 if __name__ == "__main__":
   unittest.main()

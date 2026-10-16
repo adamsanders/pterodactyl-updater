@@ -227,6 +227,7 @@ class AppConfigModel(BaseModel):
   check_interval: int = Field(default=15, ge=1, le=1440)
   discord_webhook: str = ""
   test_mode: bool = False
+  ssl_verify: bool = False
   last_check: str = Field(default="Never", exclude=True)
   last_status: str = Field(default="Idle", exclude=True)
   servers: List[ServerModel] = Field(default_factory=list)
@@ -238,6 +239,7 @@ class SettingsUpdateDTO(BaseModel):
   check_interval: int = Field(default=15, ge=1, le=1440)
   discord_webhook: str = ""
   test_mode: bool = False
+  ssl_verify: bool = False
   servers: List[ServerModel] = Field(default_factory=list)
 
 

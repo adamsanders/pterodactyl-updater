@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+import os
 import time
 from app.adapters.a2s import A2SAdapter
 from app.adapters.discord import DiscordAdapter
@@ -50,14 +51,27 @@ async def lifespan(application: FastAPI):
         details=response.url.path or str(response.url),
     )
 
+  repo = ConfigRepository()
+  cfg = repo.load()
+
+  ssl_verify_env = os.getenv("SSL_VERIFY")
+  if ssl_verify_env is not None and ssl_verify_env.strip() != "":
+    ssl_verify = ssl_verify_env.strip().lower() in ("true", "1", "yes", "on")
+  else:
+    ssl_verify = bool(getattr(cfg, "ssl_verify", False))
+
+  if not ssl_verify:
+    logger.warning(
+        "SSL verification is disabled (ssl_verify=False). Set ssl_verify=True in settings for verified TLS certificates."
+    )
+
   async with httpx.AsyncClient(
       timeout=15.0,
-      verify=False,
+      verify=ssl_verify,
       event_hooks={"request": [on_request], "response": [on_response]},
   ) as http_client:
-    repo = ConfigRepository()
     runtime_state = RuntimeStateStore()
-    runtime_state.seed_from_config(repo.load())
+    runtime_state.seed_from_config(cfg)
 
     ptero = PterodactylAdapter(client=http_client)
     real_steam = SteamAdapter(client=http_client)

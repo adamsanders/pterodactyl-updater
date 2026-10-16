@@ -4,6 +4,7 @@
   "check_interval": 2,
   "discord_webhook": "https://discord.com/api/webhooks/...",
   "test_mode": false,
+  "ssl_verify": false,
   "last_check": "Never",
   "last_status": "Idle",
   "servers": [

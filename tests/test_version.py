@@ -12,7 +12,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertTrue(len(APP_VERSION) > 0)
+    self.assertEqual(APP_VERSION, "1.16.0")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)
@@ -61,6 +61,9 @@ class TestAppVersionAndCommit(unittest.TestCase):
     self.assertIn('id="app-version"', res.text)
     self.assertIn(f"commit {COMMIT_CODE}", res.text)
     self.assertIn('id="app-commit"', res.text)
+    self.assertIn('name="ssl_verify"', res.text)
+    self.assertIn('id="ssl_verify"', res.text)
+    self.assertIn("Verify SSL Certificates", res.text)
 
     # 2. Test JSON status API
     res_api = client.get("/api/status")

@@ -58,6 +58,7 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
         check_interval=5,
         discord_webhook="http://webhook",
         test_mode=True,
+        ssl_verify=True,
         servers=[ServerModel(name="Srv1", server_id="id1", query_port_offset=8)],
     )
 
@@ -68,6 +69,7 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(saved_cfg.panel_url, "http://new.com")
     self.assertEqual(saved_cfg.api_key, "new_key")
     self.assertEqual(saved_cfg.check_interval, 5)
+    self.assertTrue(saved_cfg.ssl_verify)
     self.assertEqual(len(saved_cfg.servers), 1)
     self.assertEqual(saved_cfg.servers[0].query_port_offset, 8)
 
@@ -163,6 +165,7 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(dto.api_key, "ptlc_secret")
     self.assertEqual(dto.check_interval, 10)
     self.assertTrue(dto.test_mode)
+    self.assertFalse(dto.ssl_verify)
     self.assertEqual(len(dto.servers), 1)
     self.assertEqual(dto.servers[0].name, "Valheim 1")
     self.assertEqual(dto.servers[0].server_id, "srv123")
@@ -236,6 +239,49 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     ]
     dto = await SettingsFormData.from_form(form, current_servers)
     self.assertEqual(dto.servers[0].query_port_offset, 15)
+
+  async def test_form_data_parser_parses_ssl_verify(self):
+    # Test "true", "True", "1", "on", "yes", "YES", " true ", " 1 ", True
+    for val in ("true", "True", "1", "on", "yes", "YES", " true ", " 1 ", True):
+      form = FormData({"panel_url": "http://form.test", "ssl_verify": val})
+      dto = await SettingsFormData.from_form(form, [])
+      self.assertTrue(dto.ssl_verify, f"Expected True for ssl_verify={val}")
+
+    # Test "false", "0", "off", "no", False, "", and omitted
+    for val in ("false", "0", "off", "no", "FALSE", " 0 ", False, ""):
+      form = FormData({"panel_url": "http://form.test", "ssl_verify": val})
+      dto = await SettingsFormData.from_form(form, [])
+      self.assertFalse(dto.ssl_verify, f"Expected False for ssl_verify={val}")
+
+    form_empty = FormData({"panel_url": "http://form.test"})
+    dto_empty = await SettingsFormData.from_form(form_empty, [])
+    self.assertFalse(dto_empty.ssl_verify)
+
+  async def test_server_service_persists_ssl_verify_in_all_actions(self):
+    # 1. save_settings
+    cfg1 = AppConfigModel(ssl_verify=False)
+    self.repo.load.return_value = cfg1
+    self.service.save_settings(SettingsUpdateDTO(ssl_verify=True))
+    self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
+
+    # 2. add_server
+    cfg2 = AppConfigModel(ssl_verify=False)
+    self.repo.load.return_value = cfg2
+    self.service.add_server(SettingsUpdateDTO(ssl_verify=True))
+    self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
+
+    # 3. delete_server
+    cfg3 = AppConfigModel(ssl_verify=False, servers=[ServerModel(name="Srv1", server_id="s1")])
+    self.repo.load.return_value = cfg3
+    self.service.delete_server("s1", SettingsUpdateDTO(ssl_verify=True, servers=[ServerModel(name="Srv1", server_id="s1")]))
+    self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
+
+    # 4. rename_server
+    cfg4 = AppConfigModel(ssl_verify=False, servers=[ServerModel(name="Old", server_id="s1")])
+    self.repo.load.return_value = cfg4
+    self.ptero.rename_server.return_value = (True, None)
+    await self.service.rename_server("s1", "New", SettingsUpdateDTO(ssl_verify=True, servers=[ServerModel(name="Old", server_id="s1")]))
+    self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
 
   def test_find_server_index_by_server_id_and_legacy_index(self):
     servers = [
@@ -867,8 +913,50 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.assertEqual(len(data.get("results", [])), 1)
     self.mock_service.search_steam_games.assert_called_once_with("enshrouded")
 
+  def test_save_settings_route_with_ssl_verify_enabled(self):
+    self.app.state.repo = MagicMock()
+    self.app.state.repo.load.return_value = AppConfigModel(servers=[])
+    res = self.client.post(
+        "/save",
+        data={
+            "panel_url": "https://pterodactyl.example.com",
+            "api_key": "ptlc_secret123",
+            "check_interval": "10",
+            "discord_webhook": "https://discord.com/webhook",
+            "ssl_verify": "true",
+        },
+        follow_redirects=False,
+    )
+    self.assertEqual(res.status_code, 303)
+    self.assertEqual(res.headers["location"], "/?toast=saved")
+    self.mock_service.save_settings.assert_called_once()
+    dto = self.mock_service.save_settings.call_args[0][0]
+    self.assertTrue(dto.ssl_verify)
+    self.assertEqual(dto.panel_url, "https://pterodactyl.example.com")
+
+  def test_save_settings_route_with_ssl_verify_omitted_or_disabled(self):
+    self.app.state.repo = MagicMock()
+    self.app.state.repo.load.return_value = AppConfigModel(servers=[])
+    res = self.client.post(
+        "/save",
+        data={
+            "panel_url": "https://pterodactyl.example.com",
+            "api_key": "ptlc_secret123",
+            "check_interval": "10",
+            "discord_webhook": "",
+            # ssl_verify omitted like an unchecked checkbox
+        },
+        follow_redirects=False,
+    )
+    self.assertEqual(res.status_code, 303)
+    self.assertEqual(res.headers["location"], "/?toast=saved")
+    self.mock_service.save_settings.assert_called_once()
+    dto = self.mock_service.save_settings.call_args[0][0]
+    self.assertFalse(dto.ssl_verify)
+
 
 if __name__ == "__main__":
   unittest.main()
+
 
 

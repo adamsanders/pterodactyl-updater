@@ -79,6 +79,7 @@ class ServerService:
     cfg.check_interval = settings.check_interval
     cfg.discord_webhook = settings.discord_webhook
     cfg.test_mode = settings.test_mode
+    cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
     self.repo.save(cfg)
 
@@ -89,6 +90,7 @@ class ServerService:
     cfg.check_interval = settings.check_interval
     cfg.discord_webhook = settings.discord_webhook
     cfg.test_mode = settings.test_mode
+    cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
     cfg.servers.append(ServerModel())
     self.repo.save(cfg)
@@ -126,6 +128,7 @@ class ServerService:
     cfg.check_interval = settings.check_interval
     cfg.discord_webhook = settings.discord_webhook
     cfg.test_mode = settings.test_mode
+    cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
     target_idx = self.find_server_index(cfg.servers, identifier)
     if target_idx is not None:
@@ -153,6 +156,7 @@ class ServerService:
     cfg.check_interval = settings.check_interval
     cfg.discord_webhook = settings.discord_webhook
     cfg.test_mode = settings.test_mode
+    cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
 
     repo_idx = self.find_server_index(cfg.servers, identifier)

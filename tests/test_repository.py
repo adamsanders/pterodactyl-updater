@@ -114,6 +114,33 @@ class TestConfigRepository(unittest.TestCase):
     final = self.repo.load()
     self.assertIsInstance(final, AppConfigModel)
 
+  def test_ssl_verify_persistence_roundtrip_and_legacy_default(self):
+    # 1. Roundtrip with ssl_verify=True
+    cfg_true = AppConfigModel(panel_url="https://secure.panel", ssl_verify=True)
+    self.repo.save(cfg_true)
+    loaded_true = self.repo.load()
+    self.assertTrue(loaded_true.ssl_verify)
+
+    # 2. Roundtrip with ssl_verify=False
+    cfg_false = AppConfigModel(panel_url="https://insecure.panel", ssl_verify=False)
+    self.repo.save(cfg_false)
+    loaded_false = self.repo.load()
+    self.assertFalse(loaded_false.ssl_verify)
+
+    # 3. Legacy JSON file without ssl_verify key defaults to False
+    legacy_json = {
+        "panel_url": "http://legacy.panel",
+        "api_key": "legacy_key",
+        "check_interval": 15,
+        "servers": [],
+    }
+    with open(self.config_file, "w", encoding="utf-8") as f:
+      json.dump(legacy_json, f)
+
+    loaded_legacy = self.repo.load()
+    self.assertFalse(loaded_legacy.ssl_verify)
+    self.assertEqual(loaded_legacy.panel_url, "http://legacy.panel")
+
 
 if __name__ == "__main__":
   unittest.main()
