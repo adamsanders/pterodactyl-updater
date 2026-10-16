@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import shutil
@@ -7,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from app.adapters.repository import ConfigRepository
+from app.core.exceptions import ConfigurationError
 from app.core.models import AppConfigModel, ServerModel
 
 
@@ -61,7 +63,9 @@ class TestConfigRepository(unittest.TestCase):
 
     new_cfg = AppConfigModel(panel_url="http://should_fail.test")
     with patch("os.replace", side_effect=OSError("Simulated disk full or permission error")):
-      self.repo.save(new_cfg)
+      with self.assertRaises(ConfigurationError) as ctx:
+        self.repo.save(new_cfg)
+      self.assertIn("Failed to save configuration", str(ctx.exception))
 
     # Verify original file content is completely intact
     with open(self.config_file, "r", encoding="utf-8") as f:
@@ -72,6 +76,29 @@ class TestConfigRepository(unittest.TestCase):
     files = os.listdir(self.test_dir)
     temp_files = [f for f in files if f.startswith(".config_tmp_")]
     self.assertEqual(len(temp_files), 0)
+
+  def test_atomic_save_permission_error_raises_configuration_error(self):
+    cfg = AppConfigModel(panel_url="http://perm_error.test")
+    with patch("os.makedirs", side_effect=PermissionError("Permission denied")):
+      with self.assertRaises(ConfigurationError) as ctx:
+        self.repo.save(cfg)
+      self.assertIn("Permission denied", str(ctx.exception))
+
+  def test_atomic_save_serialization_error_raises_configuration_error(self):
+    cfg = AppConfigModel(panel_url="http://serialization_err.test")
+    with patch.object(AppConfigModel, "model_dump_json", side_effect=TypeError("Non-serializable object")):
+      with self.assertRaises(ConfigurationError) as ctx:
+        self.repo.save(cfg)
+      self.assertIn("Failed to save configuration", str(ctx.exception))
+      self.assertIn("Non-serializable object", str(ctx.exception))
+
+  def test_async_save_propagates_configuration_error(self):
+    cfg = AppConfigModel(panel_url="http://async_fail.test")
+    with patch("os.replace", side_effect=OSError("Disk write failed")):
+      with self.assertRaises(ConfigurationError) as ctx:
+        asyncio.run(self.repo.async_save(cfg))
+      self.assertIn("Failed to save configuration", str(ctx.exception))
+
 
   def test_corrupt_file_on_disk_falls_back_to_cache(self):
     # Establish cached state

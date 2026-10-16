@@ -59,6 +59,20 @@ class ConfigurationError(DomainError):
     self.status_code = status_code or 400
 
 
+class NotificationError(DomainError):
+  """Raised when a notification dispatch fails."""
+
+  def __init__(
+      self,
+      message: str,
+      status_code: Optional[int] = None,
+      details: Optional[str] = None,
+  ):
+    super().__init__(message)
+    self.status_code = status_code or 502
+    self.details = details
+
+
 class ServerNotFoundError(DomainError):
   """Raised when a targeted server identifier does not match any configured server."""
 

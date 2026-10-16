@@ -7,7 +7,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.17.2")
+APP_VERSION = os.getenv("APP_VERSION", "1.18.0")
 DEFAULT_COMMIT_CODE = "92206dc"
 
 # Steam redistributable / auxiliary tool App IDs that must never be treated as game servers

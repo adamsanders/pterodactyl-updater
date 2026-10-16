@@ -97,6 +97,21 @@ class TestDashboardModularisation(unittest.TestCase):
       self.assertTrue(comp_path.exists(), f"Component missing: {comp_path}")
       self.assertGreater(comp_path.stat().st_size, 0, f"Component empty: {comp_path}")
 
+  def test_root_template_shims_are_removed(self):
+    root_shims = [
+        "_global_status.html",
+        "_settings_panel.html",
+        "_server_card.html",
+        "_footer.html",
+        "_modals.html",
+        "_console_modal.html",
+        "_simulator_modal.html",
+    ]
+    for shim in root_shims:
+      shim_path = self.templates_dir / shim
+      self.assertFalse(shim_path.exists(), f"Obsolete root shim still exists: {shim_path}")
+
+
   def test_static_dashboard_js_served(self):
     res = self.client.get("/static/js/dashboard.js")
     self.assertEqual(res.status_code, 200)

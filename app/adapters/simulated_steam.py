@@ -41,3 +41,6 @@ class SimulatedSteamAdapter:
 
   async def fetch_patchnotes(self, appid: int | str) -> Optional[dict]:
     return await self._real_steam.fetch_patchnotes(appid)
+
+  async def search_games(self, query: str) -> list[dict]:
+    return await self._real_steam.search_games(query)

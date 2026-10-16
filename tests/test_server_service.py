@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from app.core.exceptions import ConfigurationError
 from app.core.models import (
     AppConfigModel,
     PowerSignal,
@@ -72,6 +73,32 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertTrue(saved_cfg.ssl_verify)
     self.assertEqual(len(saved_cfg.servers), 1)
     self.assertEqual(saved_cfg.servers[0].query_port_offset, 8)
+
+  def test_save_settings_propagates_configuration_error_on_save_failure(self):
+    cfg = AppConfigModel(panel_url="http://fail.com", api_key="key")
+    self.repo.load.return_value = cfg
+    self.repo.save.side_effect = ConfigurationError("Failed to save configuration: disk full")
+
+    dto = SettingsUpdateDTO(panel_url="http://fail.com", api_key="key")
+    with self.assertRaises(ConfigurationError) as ctx:
+      self.service.save_settings(dto)
+    self.assertIn("disk full", str(ctx.exception))
+
+  async def test_test_webhook_updates_server_status_and_persists(self):
+    cfg = AppConfigModel(
+        discord_webhook="https://discord.com/webhook",
+        servers=[ServerModel(name="Enshrouded", server_id="srv-1")],
+    )
+    self.repo.load.return_value = cfg
+    self.service.announcements = AsyncMock()
+    self.service.announcements.send_test_alert.return_value = (True, "Test webhook dispatched to Discord")
+
+    await self.service.test_webhook("srv-1")
+
+    self.service.announcements.send_test_alert.assert_called_once()
+    self.repo.save.assert_called_once()
+    saved = self.repo.save.call_args[0][0]
+    self.assertEqual(saved.servers[0].last_status, "Test webhook dispatched to Discord")
 
   def test_add_server_with_dto(self):
     cfg = AppConfigModel(servers=[ServerModel(name="Existing", server_id="id1")])

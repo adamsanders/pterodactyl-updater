@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, Protocol, Tuple
+from typing import Any, Optional, Protocol, Tuple, Union, runtime_checkable
 from app.core.models import (
     AppConfigModel,
     AppRuntimeState,
@@ -49,13 +49,18 @@ class RuntimeStateStoreProtocol(Protocol):
     ...
 
 
-class ConfigRepositoryProtocol(Protocol):
+@runtime_checkable
+class ConfigRepositoryGateway(Protocol):
 
   def load(self) -> AppConfigModel:
     ...
 
   def save(self, config: AppConfigModel) -> None:
     ...
+
+
+# Backward compatibility alias
+ConfigRepositoryProtocol = ConfigRepositoryGateway
 
 
 class CallTrackerProtocol(Protocol):
@@ -77,6 +82,7 @@ class CallTrackerProtocol(Protocol):
     ...
 
 
+@runtime_checkable
 class PterodactylGateway(Protocol):
 
   async def get_server_name(
@@ -143,6 +149,7 @@ class PterodactylGateway(Protocol):
     ...
 
 
+@runtime_checkable
 class SteamGateway(Protocol):
 
   async def get_latest_build(
@@ -157,7 +164,8 @@ class SteamGateway(Protocol):
     ...
 
 
-class A2SGateway(Protocol):
+@runtime_checkable
+class PlayerQueryGateway(Protocol):
 
   async def get_player_count(
       self, host: str, port: int
@@ -165,6 +173,11 @@ class A2SGateway(Protocol):
     ...
 
 
+# Backward compatibility alias
+A2SGateway = PlayerQueryGateway
+
+
+@runtime_checkable
 class NotificationGateway(Protocol):
 
   async def send_notification(
@@ -176,7 +189,8 @@ class NotificationGateway(Protocol):
     ...
 
 
-class CountdownManagerProtocol(Protocol):
+@runtime_checkable
+class CountdownGateway(Protocol):
 
   def start(
       self,
@@ -202,6 +216,49 @@ class CountdownManagerProtocol(Protocol):
     ...
 
 
+# Backward compatibility alias
+CountdownManagerProtocol = CountdownGateway
+
+
+@runtime_checkable
+class PowerTrackerGateway(Protocol):
+
+  def register_signal(
+      self, server_id: str, signal: Union[PowerSignal, str]
+  ) -> PowerState:
+    ...
+
+  def get_valid_cache(self, server_id: str) -> Optional[PowerState]:
+    ...
+
+  def filter_state(
+      self, server_id: str, raw_state: Optional[Union[PowerState, str]]
+  ) -> PowerState:
+    ...
+
+  def invalidate(self, server_id: Optional[str] = None) -> None:
+    ...
+
+  def pop_just_started(self, server_id: str) -> bool:
+    ...
+
+
+@runtime_checkable
+class StatusAggregationGateway(Protocol):
+
+  async def get_single_server_status(
+      self,
+      cfg: AppConfigModel,
+      ext_ip: Optional[str],
+      idx: int,
+      srv: ServerModel,
+  ) -> Any:
+    ...
+
+  async def get_status_snapshot(self) -> dict[str, Any]:
+    ...
+
+
 class UpdateOrchestratorProtocol(Protocol):
 
   def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
@@ -210,4 +267,4 @@ class UpdateOrchestratorProtocol(Protocol):
   async def run_update_check(
       self, target_server_id: Optional[str] = None
   ) -> None:
-    ...
+    ...

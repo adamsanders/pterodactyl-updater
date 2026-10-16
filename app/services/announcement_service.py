@@ -2,6 +2,7 @@ from datetime import datetime
 import logging
 from typing import Optional
 from app.core.config import TIMING_CONFIG
+from app.core.exceptions import NotificationError
 from app.core.models import ServerModel, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -94,7 +95,11 @@ class AnnouncementService:
       return True, "Test simulated (Test Mode ON)"
     elif cfg.discord_webhook:
       if self.discord:
-        await self.discord.send_notification(cfg.discord_webhook, msg, embed)
+        try:
+          await self.discord.send_notification(cfg.discord_webhook, msg, embed)
+        except NotificationError as e:
+          logger.error(f"Failed to dispatch test alert to Discord: {e}")
+          return False, f"Error: Discord webhook dispatch failed ({e})"
       return True, "Test webhook dispatched to Discord"
     else:
       return False, "Error: No Discord Webhook configured"
@@ -119,8 +124,13 @@ class AnnouncementService:
             )
         )
     elif webhook_url and self.discord:
-      await self.discord.send_notification(
-          webhook_url=webhook_url,
-          message=message,
-          embed=embed,
-      )
+      try:
+        await self.discord.send_notification(
+            webhook_url=webhook_url,
+            message=message,
+            embed=embed,
+        )
+      except NotificationError as e:
+        logger.error(
+            f"[{server_name}] Failed to dispatch announcement notification to Discord: {e}"
+        )

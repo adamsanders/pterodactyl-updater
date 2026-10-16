@@ -1,6 +1,7 @@
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.core.exceptions import NotificationError
 from app.core.models import AppConfigModel, ServerModel
 from app.services.announcement_service import AnnouncementService
 from app.services.preview_store import WebhookPreviewStore
@@ -124,6 +125,46 @@ class TestAnnouncementService(unittest.IsolatedAsyncioTestCase):
     success, msg = await self.service.send_test_alert(srv)
     self.assertFalse(success)
     self.assertEqual(msg, "Error: No Discord Webhook configured")
+
+    # 4. Live Discord failure returns error tuple rather than raising
+    cfg_fail = AppConfigModel(discord_webhook="https://discord.com/webhook", test_mode=False)
+    self.repo.load.return_value = cfg_fail
+    self.discord.send_notification.side_effect = NotificationError(
+        "Discord webhook failed with HTTP 400", status_code=400
+    )
+    with patch("app.services.announcement_service.logger.error") as mock_log:
+      success, msg = await self.service.send_test_alert(srv)
+      self.assertFalse(success)
+      self.assertIn("Error: Discord webhook dispatch failed", msg)
+      mock_log.assert_called_once()
+
+  async def test_broadcast_warning_notification_error_is_logged_and_does_not_crash(self):
+    srv = ServerModel(
+        name="Valheim Dedicated",
+        server_id="srv_valheim",
+        app_id="896660",
+        warn_ingame_countdown=True,
+        discord_alerts=True,
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="ptlc_key",
+        discord_webhook="https://discord.com/webhook",
+        test_mode=False,
+    )
+    self.repo.load.return_value = cfg
+    self.steam.fetch_patchnotes.return_value = None
+    self.discord.send_notification.side_effect = NotificationError(
+        "Discord 500 Internal Server Error", status_code=500
+    )
+
+    with patch("app.services.announcement_service.logger.error") as mock_log:
+      # Must not raise NotificationError so scheduled update countdown survives
+      await self.service.broadcast_warning(
+          server=srv, minutes_left=15, include_patchnotes=False
+      )
+      mock_log.assert_called_once()
+      self.assertIn("Failed to dispatch announcement notification", mock_log.call_args[0][0])
 
 
 if __name__ == "__main__":

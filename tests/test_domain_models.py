@@ -9,6 +9,7 @@ from app.core.exceptions import (
     ConfigurationError,
     DomainError,
     InvalidPowerActionError,
+    NotificationError,
     PterodactylApiError,
     ServerNotFoundError,
     SimulationError,
@@ -141,6 +142,7 @@ class TestDomainExceptions(unittest.TestCase):
     self.assertTrue(issubclass(SteamApiError, DomainError))
     self.assertTrue(issubclass(A2SQueryError, DomainError))
     self.assertTrue(issubclass(ConfigurationError, DomainError))
+    self.assertTrue(issubclass(NotificationError, DomainError))
     self.assertTrue(issubclass(ServerNotFoundError, DomainError))
     self.assertTrue(issubclass(InvalidPowerActionError, DomainError))
     self.assertTrue(issubclass(SimulationError, DomainError))
@@ -219,6 +221,17 @@ class TestDomainExceptions(unittest.TestCase):
     self.assertIsInstance(err, DomainError)
     self.assertEqual(err.status_code, 400)
     self.assertEqual(err.server_id, "srv-1")
+
+  def test_notification_error_attributes(self):
+    err = NotificationError(
+        "Discord webhook delivery failed",
+        status_code=500,
+        details="Internal Server Error",
+    )
+    self.assertIsInstance(err, DomainError)
+    self.assertEqual(str(err), "Discord webhook delivery failed")
+    self.assertEqual(err.status_code, 500)
+    self.assertEqual(err.details, "Internal Server Error")
 
 
 class TestDomainErrorBoundary(unittest.TestCase):

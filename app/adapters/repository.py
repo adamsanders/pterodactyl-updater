@@ -6,6 +6,7 @@ import tempfile
 import threading
 from typing import Optional
 from app.core.config import CONFIG_PATH
+from app.core.exceptions import ConfigurationError
 from app.core.models import AppConfigModel
 
 logger = logging.getLogger("updater.repository")
@@ -71,8 +72,11 @@ class ConfigRepository:
 
         # 4. Update in-memory cache
         self._cached_config = config.model_copy(deep=True)
+      except ConfigurationError:
+        raise
       except Exception as e:
         logger.error(f"Failed to save configuration to {self.filepath}: {e}")
+        raise ConfigurationError(f"Failed to save configuration: {e}") from e
       finally:
         # Clean up temporary file if write or replace was aborted
         if temp_path and os.path.exists(temp_path):
