@@ -54,10 +54,11 @@ class AnnouncementService:
     if is_first or server.warn_ingame_countdown:
       logger.info(f"[{server.name}] {msg}")
       if cfg.panel_url and cfg.api_key and server.server_id:
-        cmd_template = getattr(server, "broadcast_command_template", "say {message}") or "say {message}"
+        raw_template = getattr(server, "broadcast_command_template", "say {message}") or "say {message}"
+        cmd_template = raw_template.strip() if isinstance(raw_template, str) and raw_template.strip() else "say {message}"
         try:
           if "{message}" in cmd_template:
-            cmd = cmd_template.format(message=msg)
+            cmd = cmd_template.replace("{message}", msg)
           else:
             _ = cmd_template.format()
             cmd = f"{cmd_template} {msg}"

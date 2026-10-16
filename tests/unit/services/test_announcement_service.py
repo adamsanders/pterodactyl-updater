@@ -166,6 +166,63 @@ class TestAnnouncementService(unittest.IsolatedAsyncioTestCase):
       mock_log.assert_called_once()
       self.assertIn("Failed to dispatch announcement notification", mock_log.call_args[0][0])
 
+  async def test_broadcast_warning_safe_templating_with_extra_braces_and_symbols(self):
+    test_cases = [
+        (
+            "say {{ALERT}} {message} {{END}}",
+            "say {{ALERT}} Server will restart in 5 minute(s) for an update. Please find a safe spot! {{END}}",
+        ),
+        (
+            "broadcast {invalid_format:10s} {message}",
+            "broadcast {invalid_format:10s} Server will restart in 5 minute(s) for an update. Please find a safe spot!",
+        ),
+        (
+            'servermsg [ADMIN:100%] "{message}" {unclosed',
+            'servermsg [ADMIN:100%] "Server will restart in 5 minute(s) for an update. Please find a safe spot!" {unclosed',
+        ),
+        (
+            "say {0} {name} {message} %s $PATH",
+            "say {0} {name} Server will restart in 5 minute(s) for an update. Please find a safe spot! %s $PATH",
+        ),
+        (
+            "say {message} (REPEAT: {message})",
+            "say Server will restart in 5 minute(s) for an update. Please find a safe spot! (REPEAT: Server will restart in 5 minute(s) for an update. Please find a safe spot!)",
+        ),
+        (
+            "   ",
+            "say Server will restart in 5 minute(s) for an update. Please find a safe spot!",
+        ),
+        (
+            "broadcast {unclosed",
+            "say Server will restart in 5 minute(s) for an update. Please find a safe spot!",
+        ),
+    ]
+
+    for template, expected_cmd in test_cases:
+      with self.subTest(template=template):
+        self.ptero.reset_mock()
+        srv = ServerModel(
+            name="Templated Game Server",
+            server_id="srv_templ",
+            warn_ingame_countdown=True,
+            broadcast_command_template=template,
+        )
+        cfg = AppConfigModel(
+            panel_url="http://panel.test",
+            api_key="ptlc_key",
+            servers=[srv],
+        )
+        self.repo.load.return_value = cfg
+
+        await self.service.broadcast_warning(server=srv, minutes_left=5)
+
+        self.ptero.send_command.assert_called_once_with(
+            "http://panel.test",
+            "ptlc_key",
+            "srv_templ",
+            expected_cmd,
+        )
+
 
 if __name__ == "__main__":
   unittest.main()

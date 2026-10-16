@@ -285,17 +285,17 @@ class TestSteamAdapterSanitization(unittest.IsolatedAsyncioTestCase):
     self.assertIn("**Patch notes**", notes.content)
     self.assertEqual(notes.image_url, "https://clan.cloudflare.steamstatic.com/banner.png")
 
-    # Verify to_embed() generation
-    embed = notes.to_embed()
+    # Verify embed formatting via DiscordAdapter
+    embed = DiscordAdapter.create_patchnotes_embed(notes)
     self.assertEqual(embed["title"], "📜 Version 1.5 Update")
     self.assertEqual(embed["url"], "https://steamcommunity.com/news/123")
     self.assertIn("**Patch notes**", embed["description"])
     self.assertEqual(embed["image"]["url"], "https://clan.cloudflare.steamstatic.com/banner.png")
     self.assertEqual(embed["color"], 0x1B2838)
 
-    # Verify dict-like access backward-compatibility
-    self.assertEqual(notes["title"], "📜 Version 1.5 Update")
-    self.assertEqual(notes["url"], "https://steamcommunity.com/news/123")
+    # Verify pure DTO attribute access
+    self.assertEqual(notes.title, "Version 1.5 Update")
+    self.assertEqual(notes.url, "https://steamcommunity.com/news/123")
 
 
 class TestA2SAdapterDatagram(unittest.IsolatedAsyncioTestCase):

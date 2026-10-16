@@ -235,28 +235,6 @@ class SteamPatchNotes(BaseModel):
   image_url: Optional[str] = None
   posted_at: Optional[str] = None
 
-  def to_embed(self) -> dict[str, Any]:
-    """Generates standard Discord embed presentation structure."""
-    embed: dict[str, Any] = {
-        "title": f"📜 {self.title}",
-        "url": self.url,
-        "description": self.content,
-        "color": 0x1B2838,
-        "footer": {"text": "Steam Official Announcement"},
-    }
-    if self.image_url:
-      embed["image"] = {"url": self.image_url}
-    return embed
-
-  def __getitem__(self, item: str) -> Any:
-    embed = self.to_embed()
-    if item in embed:
-      return embed[item]
-    raise KeyError(item)
-
-  def get(self, item: str, default: Any = None) -> Any:
-    return self.to_embed().get(item, default)
-
 
 class ServerRuntimeState(BaseModel):
   """Ephemeral runtime state for a single managed game server."""

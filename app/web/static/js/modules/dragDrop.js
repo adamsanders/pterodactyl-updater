@@ -53,6 +53,8 @@ export function initServerDragAndDrop(containerSelector = '#main-form > div', ca
   if (!container) return;
 
   let draggedCard = null;
+  let isDragging = false;
+  let isHandleGrabbed = false;
 
   cards.forEach(card => {
     if (!card) return;

@@ -115,7 +115,7 @@ class TestSteamPatchNotesDTO(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(notes.image_url, "https://steam.cdn/banner.png")
     self.assertEqual(notes.posted_at, "1700000000")
 
-    embed = notes.to_embed()
+    embed = DiscordAdapter.create_patchnotes_embed(notes)
     self.assertEqual(embed["title"], "📜 Major Game Update 2.0")
     self.assertEqual(embed["url"], "https://steamcommunity.com/news/123")
     self.assertEqual(embed["description"], "Bug fixes and performance improvements")
@@ -130,20 +130,20 @@ class TestSteamPatchNotesDTO(unittest.IsolatedAsyncioTestCase):
         url="https://steamcommunity.com/news/456",
         image_url=None,
     )
-    embed = notes.to_embed()
+    embed = DiscordAdapter.create_patchnotes_embed(notes)
     self.assertNotIn("image", embed)
 
-  def test_steam_patch_notes_subscripting_backward_compat(self):
+  def test_steam_patch_notes_pure_dto_without_presentation_logic(self):
     notes = SteamPatchNotes(
         title="Update v1",
         content="Changes",
         url="https://steamcommunity.com/news/789",
     )
-    self.assertEqual(notes["title"], "📜 Update v1")
-    self.assertEqual(notes["url"], "https://steamcommunity.com/news/789")
-    self.assertEqual(notes["color"], 0x1B2838)
-    self.assertEqual(notes.get("footer")["text"], "Steam Official Announcement")
-    self.assertIsNone(notes.get("nonexistent"))
+    # Pure domain DTO: no presentation methods or dict subscripting
+    self.assertFalse(hasattr(notes, "to_embed"))
+    self.assertFalse(hasattr(notes, "get"))
+    with self.assertRaises(TypeError):
+      _ = notes["title"]
 
   def test_discord_adapter_create_patchnotes_embed(self):
     notes = SteamPatchNotes(

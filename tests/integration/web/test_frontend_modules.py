@@ -128,6 +128,8 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     self.assertIn("LABEL", drag_drop_content)
     self.assertIn("button, label, input, select, textarea, a", drag_drop_content)
     self.assertIn(".server-drag-handle", drag_drop_content)
+    self.assertIn("let isDragging = false;", drag_drop_content)
+    self.assertIn("let isHandleGrabbed = false;", drag_drop_content)
     self.assertIn("isHandleGrabbed", drag_drop_content)
 
   def test_server_card_template_includes_visible_drag_anchor(self):
