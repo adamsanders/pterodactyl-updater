@@ -100,9 +100,10 @@ class ServerService:
     if not ident_str:
       return None
 
-    # 1. Match by server_id
+    ident_lower = ident_str.lower()
+    # 1. Match by server_id (case-insensitive)
     for idx, srv in enumerate(servers):
-      if srv.server_id and srv.server_id.strip() == ident_str:
+      if srv.server_id and srv.server_id.strip().lower() == ident_lower:
         return idx
 
     # 2. Match by legacy numeric index if identifier is numeric

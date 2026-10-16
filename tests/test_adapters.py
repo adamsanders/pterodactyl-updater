@@ -472,6 +472,88 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     self.assertIsNone(build)
     self.assertIn("not configured", err)
 
+  async def test_detect_server_details_ignores_1007_manifest_and_picks_game_manifest(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {"data": [], "meta": {"startup_command": ""}}
+      elif "/files/list" in url:
+        resp.json.return_value = {
+            "data": [
+                {"attributes": {"name": "appmanifest_1007.acf"}},
+                {"attributes": {"name": "appmanifest_2278520.acf"}},
+            ]
+        }
+      else:
+        resp.json.return_value = {"attributes": {"name": "Enshrouded Realm"}}
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-enshrouded"
+    )
+    self.assertEqual(details["app_id"], "2278520")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2278520.acf")
+
+  async def test_detect_server_details_from_startup_command_flag(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {
+            "data": [],
+            "meta": {
+                "startup_command": "steamcmd +force_install_dir /home/container +login anonymous +app_update 2278520 validate +quit"
+            },
+        }
+      elif "/files/list" in url:
+        resp.json.return_value = {
+            "data": [{"attributes": {"name": "appmanifest_1007.acf"}}]
+        }
+      else:
+        resp.json.return_value = {"attributes": {"name": "Enshrouded Server"}}
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-enshrouded"
+    )
+    self.assertEqual(details["app_id"], "2278520")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2278520.acf")
+
+  async def test_detect_server_details_preserves_detected_appid_when_1007_is_in_files(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {
+            "data": [
+                {"attributes": {"env_variable": "STEAM_APPID", "server_value": "896660"}}
+            ],
+            "meta": {"startup_command": ""},
+        }
+      elif "/files/list" in url:
+        resp.json.return_value = {
+            "data": [
+                {"attributes": {"name": "appmanifest_1007.acf"}},
+                {"attributes": {"name": "appmanifest_896660.acf"}},
+            ]
+        }
+      else:
+        resp.json.return_value = {"attributes": {"name": "Valheim Server"}}
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-valheim"
+    )
+    self.assertEqual(details["app_id"], "896660")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_896660.acf")
+
 
 class TestSteamAdapterSearch(unittest.IsolatedAsyncioTestCase):
 

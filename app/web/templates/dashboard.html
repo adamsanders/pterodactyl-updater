@@ -404,14 +404,16 @@
             if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${d.name}`;
             changed = true;
           }
-          if (d.app_id && appidInput && !appidInput.value.trim()) {
+          const isBadAppId = !appidInput.value.trim() || appidInput.value.trim() === '1007' || appidInput.value.trim() === '228980';
+          if (d.app_id && appidInput && isBadAppId && d.app_id !== '1007' && d.app_id !== '228980') {
             appidInput.value = d.app_id;
             changed = true;
           }
-          if (d.manifest_path && manifestInput && !manifestInput.value.trim()) {
+          const isBadManifest = !manifestInput.value.trim() || /appmanifest_1007\.acf/i.test(manifestInput.value) || /appmanifest_228980\.acf/i.test(manifestInput.value);
+          if (d.manifest_path && manifestInput && isBadManifest) {
             manifestInput.value = d.manifest_path;
             changed = true;
-          } else if (d.app_id && manifestInput && (!manifestInput.value.trim() || /appmanifest_896660\.acf/i.test(manifestInput.value))) {
+          } else if (d.app_id && manifestInput && (isBadManifest || /appmanifest_896660\.acf/i.test(manifestInput.value))) {
             updateManifestAppId(idx, d.app_id);
             changed = true;
           }
@@ -432,9 +434,9 @@
 
     function updateManifestAppId(idx, newAppId) {
       const manifestInput = document.getElementById('srv_manifest_input_' + idx);
-      if (!manifestInput || !newAppId) return;
+      if (!manifestInput || !newAppId || newAppId === '1007' || newAppId === '228980') return;
       const currentPath = manifestInput.value.trim();
-      if (!currentPath) {
+      if (!currentPath || /appmanifest_1007\.acf/i.test(currentPath) || /appmanifest_228980\.acf/i.test(currentPath)) {
         manifestInput.value = `steamapps/appmanifest_${newAppId}.acf`;
       } else if (/appmanifest_.*\.acf/i.test(currentPath)) {
         manifestInput.value = currentPath.replace(/appmanifest_.*\.acf/i, `appmanifest_${newAppId}.acf`);
@@ -450,7 +452,7 @@
       checkServerDirty(idx);
       const appidInput = document.getElementById('srv_appid_input_' + idx);
       const val = appidInput?.value.trim();
-      if (val && /^\d+$/.test(val)) {
+      if (val && /^\d+$/.test(val) && val !== '1007' && val !== '228980') {
         updateManifestAppId(idx, val);
       }
     }

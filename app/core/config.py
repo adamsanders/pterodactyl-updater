@@ -7,7 +7,17 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.12.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.12.1")
+
+# Steam redistributable / auxiliary tool App IDs that must never be treated as game servers
+IGNORED_STEAM_APPIDS: set[str] = {
+    "1007",    # Steamworks SDK Redist
+    "228980",  # Steamworks Common Redistributables
+    "1008",    # Steamworks SDK Dedicated Server
+    "1009",    # Steamworks SDK Win32
+    "0",
+}
+
 
 
 @dataclass(frozen=True)

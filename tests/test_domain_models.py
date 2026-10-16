@@ -19,6 +19,7 @@ from app.core.models import (
     OperationResult,
     PlayerMetrics,
     ServerAllocation,
+    ServerModel,
     ServerNameResult,
 )
 from app.adapters.pterodactyl import PterodactylAdapter
@@ -141,6 +142,28 @@ class TestDomainExceptions(unittest.TestCase):
     self.assertTrue(issubclass(InvalidPowerActionError, DomainError))
     self.assertTrue(issubclass(SimulationError, DomainError))
     self.assertTrue(issubclass(DomainError, Exception))
+
+  def test_server_model_purges_ignored_redistributable_appids(self):
+    data = {
+        "name": "Enshrouded Server",
+        "server_id": "srv2",
+        "app_id": "1007",
+        "manifest_path": "steamapps/appmanifest_1007.acf",
+    }
+    srv = ServerModel(**data)
+    self.assertEqual(srv.app_id, "")
+    self.assertEqual(srv.manifest_path, "")
+
+  def test_server_model_corrects_manifest_path_with_valid_appid_and_1007_manifest(self):
+    data = {
+        "name": "Valheim Server",
+        "server_id": "srv1",
+        "app_id": "896660",
+        "manifest_path": "steamapps/appmanifest_1007.acf",
+    }
+    srv = ServerModel(**data)
+    self.assertEqual(srv.app_id, "896660")
+    self.assertEqual(srv.manifest_path, "steamapps/appmanifest_896660.acf")
 
   def test_pterodactyl_api_error_attributes(self):
     err = PterodactylApiError(

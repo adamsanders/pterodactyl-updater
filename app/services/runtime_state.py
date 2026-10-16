@@ -35,7 +35,7 @@ class RuntimeStateStore:
       return updated
 
   def get_server_state(self, server_id: str) -> ServerRuntimeState:
-    s_id = str(server_id).strip()
+    s_id = str(server_id).strip().lower()
     with self._lock:
       if s_id not in self._server_states:
         self._server_states[s_id] = ServerRuntimeState(server_id=s_id)
@@ -48,7 +48,7 @@ class RuntimeStateStore:
       latest_build: Optional[str] = None,
       last_status: Optional[str] = None,
   ) -> ServerRuntimeState:
-    s_id = str(server_id).strip()
+    s_id = str(server_id).strip().lower()
     with self._lock:
       current = self.get_server_state(s_id)
       updates = {}
@@ -75,7 +75,7 @@ class RuntimeStateStore:
         self._global_state.last_status = config.last_status
 
       for srv in config.servers:
-        s_id = str(srv.server_id).strip()
+        s_id = str(srv.server_id).strip().lower()
         if not s_id:
           continue
         self._server_states[s_id] = ServerRuntimeState(

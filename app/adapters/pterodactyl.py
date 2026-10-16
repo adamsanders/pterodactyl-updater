@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.adapters.power_tracker import PowerStateTracker
-from app.core.config import POPULAR_DEDICATED_SERVERS
+from app.core.config import IGNORED_STEAM_APPIDS, POPULAR_DEDICATED_SERVERS
 from app.core.exceptions import PterodactylApiError
 from app.core.models import (
     LocalBuildResult,
@@ -158,7 +158,7 @@ class PterodactylAdapter:
     headers = self._headers(api_key)
     base_url = panel_url.rstrip("/")
 
-    # 1. Fetch general server details (name, invocation)
+    # 1. Fetch general server details (name)
     try:
       res = await self._client.get(f"{base_url}/api/client/servers/{server_id}", headers=headers)
       if res.status_code == 200:
@@ -166,17 +166,24 @@ class PterodactylAdapter:
         details["name"] = attrs.get("name")
         invocation = attrs.get("invocation", "")
         m = re.search(r"app_update\s+(\d+)", invocation)
-        if m:
+        if m and m.group(1) not in IGNORED_STEAM_APPIDS:
           details["app_id"] = m.group(1)
     except Exception as e:
       logger.warning(f"Error fetching server details for {server_id}: {e}")
 
-    # 2. Check startup parameters/variables for App ID
-    if not details["app_id"]:
-      try:
-        res = await self._client.get(f"{base_url}/api/client/servers/{server_id}/startup", headers=headers)
-        if res.status_code == 200:
-          data = res.json().get("data", [])
+    # 2. Check startup parameters/variables and startup commands for App ID
+    try:
+      res = await self._client.get(f"{base_url}/api/client/servers/{server_id}/startup", headers=headers)
+      if res.status_code == 200:
+        json_data = res.json()
+        meta = json_data.get("meta", {})
+        cmd = f"{meta.get('startup_command', '')} {meta.get('raw_startup_command', '')}"
+        m = re.search(r"app_update\s+(\d+)", cmd)
+        if m and m.group(1) not in IGNORED_STEAM_APPIDS:
+          details["app_id"] = m.group(1)
+
+        if not details["app_id"]:
+          data = json_data.get("data", [])
           for item in data:
             vattrs = item.get("attributes", {})
             env_var = (vattrs.get("env_variable") or "").upper()
@@ -186,25 +193,39 @@ class PterodactylAdapter:
                 env_var in ("STEAM_APP_ID", "STEAM_APPID", "APP_ID", "APPID", "SRCDS_APPID", "GAME_ID", "GAME_APP_ID", "VANILLA_APPID")
                 or "app id" in var_name
                 or "appid" in var_name
-            ) and val.isdigit():
+            ) and val.isdigit() and val not in IGNORED_STEAM_APPIDS:
               details["app_id"] = val
               break
-      except Exception as e:
-        logger.debug(f"Could not inspect startup variables for {server_id}: {e}")
+    except Exception as e:
+      logger.debug(f"Could not inspect startup variables for {server_id}: {e}")
 
-    # 3. Check file list for appmanifest_<appid>.acf
+    # 3. Check file list for appmanifest_<appid>.acf (filtering out 1007 / 228980 redistributables)
     try:
       res = await self._client.get(f"{base_url}/api/client/servers/{server_id}/files/list?directory=steamapps", headers=headers)
       if res.status_code == 200:
         files = res.json().get("data", [])
+        valid_manifests: list[tuple[str, str]] = []
         for f in files:
           fname = f.get("attributes", {}).get("name", "")
           m = re.match(r"^appmanifest_(\d+)\.acf$", fname)
           if m:
-            details["manifest_path"] = f"steamapps/{fname}"
-            if not details["app_id"]:
-              details["app_id"] = m.group(1)
-            break
+            aid = m.group(1)
+            if aid not in IGNORED_STEAM_APPIDS:
+              valid_manifests.append((aid, f"steamapps/{fname}"))
+
+        # If app_id was already detected from startup, look for its exact manifest
+        if details["app_id"]:
+          for aid, mpath in valid_manifests:
+            if aid == details["app_id"]:
+              details["manifest_path"] = mpath
+              break
+
+        # If app_id not yet known, choose the game manifest (preferring catalog matches)
+        if not details["app_id"] and valid_manifests:
+          catalog_appids = {s["app_id"] for s in POPULAR_DEDICATED_SERVERS}
+          chosen = next((item for item in valid_manifests if item[0] in catalog_appids), valid_manifests[0])
+          details["app_id"] = chosen[0]
+          details["manifest_path"] = chosen[1]
     except Exception as e:
       logger.debug(f"Could not inspect steamapps directory for {server_id}: {e}")
 

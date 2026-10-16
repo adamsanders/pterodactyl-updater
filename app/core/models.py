@@ -1,4 +1,5 @@
-from typing import List, NamedTuple, Optional
+from typing import Any, List, NamedTuple, Optional
+from app.core.config import IGNORED_STEAM_APPIDS
 from app.core.exceptions import (
     DomainError,
     InvalidPowerActionError,
@@ -144,6 +145,16 @@ class ServerModel(BaseModel):
 
   @model_validator(mode="after")
   def default_manifest_from_appid(self) -> "ServerModel":
+    # 1. Purge known redistributable tool App IDs (e.g. 1007 Steamworks SDK)
+    if self.app_id in IGNORED_STEAM_APPIDS:
+      self.app_id = ""
+    if self.manifest_path and any(
+        f"appmanifest_{bad}.acf" in self.manifest_path.lower()
+        for bad in IGNORED_STEAM_APPIDS
+    ):
+      self.manifest_path = ""
+
+    # 2. Re-derive standard manifest path if valid app_id exists and path is empty
     if not self.manifest_path and self.app_id:
       self.manifest_path = f"steamapps/appmanifest_{self.app_id}.acf"
     return self

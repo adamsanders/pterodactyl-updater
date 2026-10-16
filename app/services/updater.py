@@ -246,30 +246,7 @@ class UpdateOrchestrator:
     if latest_build:
       server.latest_build = latest_build
 
-    # 4. Immediate build convergence check (e.g. Test Mode disabled or build withdrawn)
-    if (
-        latest_build
-        and server.current_build not in ("Unknown", "?")
-        and latest_build == server.current_build
-    ):
-      if self.countdown.is_running(server.server_id):
-        logger.info(
-            f"[{server.name}] Latest build ({latest_build}) matches current"
-            " build. Aborting countdown."
-        )
-        self.countdown.stop(server.server_id)
-      self._restarted_builds.pop(server.server_id, None)
-      server.last_status = "Up to date"
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            current_build=server.current_build,
-            latest_build=latest_build,
-            last_status=server.last_status,
-        )
-      return
-
-    # 5. Skip local manifest I/O if server is starting/stopping, or offline following update restart
+    # 4. Skip local manifest I/O if server is starting/stopping, or offline following update restart
     if power_state in TRANSITIONAL_POWER_STATES or (
         power_state == "offline"
         and self._restarted_builds.get(server.server_id) == latest_build
