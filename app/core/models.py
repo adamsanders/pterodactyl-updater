@@ -135,10 +135,10 @@ class ServerModel(BaseModel):
   server_id: str = ""
   app_id: str = ""
   manifest_path: str = ""
-  auto_restart: bool = True
-  discord_alerts: bool = True
-  warn_ingame_countdown: bool = True
-  warn_discord_countdown: bool = True
+  auto_restart: bool = False
+  discord_alerts: bool = False
+  warn_ingame_countdown: bool = False
+  warn_discord_countdown: bool = False
   current_build: str = Field(default="Unknown", exclude=True)
   latest_build: str = Field(default="Unknown", exclude=True)
   last_status: str = Field(default="Idle", exclude=True)

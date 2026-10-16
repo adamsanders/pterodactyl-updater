@@ -165,6 +165,13 @@ class TestDomainExceptions(unittest.TestCase):
     self.assertEqual(srv.app_id, "896660")
     self.assertEqual(srv.manifest_path, "steamapps/appmanifest_896660.acf")
 
+  def test_server_model_slider_defaults_are_off(self):
+    srv = ServerModel()
+    self.assertFalse(srv.auto_restart)
+    self.assertFalse(srv.discord_alerts)
+    self.assertFalse(srv.warn_ingame_countdown)
+    self.assertFalse(srv.warn_discord_countdown)
+
   def test_pterodactyl_api_error_attributes(self):
     err = PterodactylApiError(
         "Server not found", status_code=404, server_id="srv-123", details="Resource missing"

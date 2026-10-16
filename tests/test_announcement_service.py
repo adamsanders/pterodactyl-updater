@@ -76,6 +76,7 @@ class TestAnnouncementService(unittest.IsolatedAsyncioTestCase):
         app_id="2394010",
         warn_ingame_countdown=True,
         discord_alerts=True,
+        warn_discord_countdown=True,
     )
     cfg = AppConfigModel(
         panel_url="http://panel.test",

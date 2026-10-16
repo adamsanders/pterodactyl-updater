@@ -81,6 +81,10 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(len(saved_cfg.servers), 2)
     self.assertEqual(saved_cfg.servers[0].name, "Existing")
     self.assertEqual(saved_cfg.servers[1].name, "New Server")
+    self.assertFalse(saved_cfg.servers[1].auto_restart)
+    self.assertFalse(saved_cfg.servers[1].discord_alerts)
+    self.assertFalse(saved_cfg.servers[1].warn_ingame_countdown)
+    self.assertFalse(saved_cfg.servers[1].warn_discord_countdown)
 
   def test_delete_server_with_dto(self):
     cfg = AppConfigModel(
