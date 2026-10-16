@@ -1145,7 +1145,7 @@
                 Save Server
               </button>
               <button type="submit" form="main-form" formaction="/test-webhook/{{ srv.server_id or idx }}" class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold">Test Webhook</button>
-              <button type="submit" form="main-form" formaction="/delete-server/{{ srv.server_id or idx }}" class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
+              <button type="submit" form="main-form" formaction="/delete-server/{{ srv.server_id or idx }}" formnovalidate class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
             </div>
           </div>
 
