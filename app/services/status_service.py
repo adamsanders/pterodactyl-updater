@@ -54,16 +54,7 @@ class StatusAggregationService:
     self.call_tracker = call_tracker
     self.markdown_formatter = markdown_formatter
     self.runtime_state = runtime_state
-    if power_tracker is not None:
-      self.power_tracker = power_tracker
-    elif (
-        hasattr(ptero, "_tracker")
-        and not hasattr(getattr(ptero, "_tracker", None), "_mock_return_value")
-        and hasattr(getattr(ptero, "_tracker", None), "get_valid_cache")
-    ):
-      self.power_tracker = getattr(ptero, "_tracker")
-    else:
-      self.power_tracker = None
+    self.power_tracker = power_tracker
     self.telemetry_cache_ttl = telemetry_cache_ttl
     self._telemetry_cache: dict[str, dict[str, Any]] = {}
     self._ext_ip_cache: tuple[Optional[str], float] = (None, 0.0)

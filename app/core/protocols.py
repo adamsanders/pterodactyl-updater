@@ -3,18 +3,23 @@ from typing import Any, Optional, Protocol, Tuple, Union, runtime_checkable
 from app.core.models import (
     AppConfigModel,
     AppRuntimeState,
+    DetectedServerDetails,
     LocalBuildResult,
     OperationResult,
     PlayerMetrics,
     PowerSignal,
     PowerState,
+    PowerTrackerEntry,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
     ServerRuntimeState,
+    ServerStatusDTO,
     ServerUpdateStatus,
     SteamPatchNotes,
+    SteamSearchResult,
 )
+
 
 
 class RuntimeStateStoreProtocol(Protocol):
@@ -96,12 +101,14 @@ class CallTrackerProtocol(Protocol):
 
 
 @runtime_checkable
-class PterodactylGateway(Protocol):
+class PublicIpGateway(Protocol):
 
-  async def get_server_name(
-      self, panel_url: str, api_key: str, server_id: str
-  ) -> ServerNameResult:
+  async def get_external_ip(self) -> Optional[str]:
     ...
+
+
+@runtime_checkable
+class PterodactylPowerGateway(Protocol):
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
@@ -112,24 +119,6 @@ class PterodactylGateway(Protocol):
     ...
 
   def invalidate_power_cache(self, server_id: Optional[str] = None) -> None:
-    ...
-
-  async def get_external_ip(self) -> Optional[str]:
-    ...
-
-  async def get_server_allocation(
-      self, panel_url: str, api_key: str, server_id: str
-  ) -> ServerAllocation:
-    ...
-
-  async def get_local_build(
-      self, panel_url: str, api_key: str, server_id: str, manifest_path: str
-  ) -> LocalBuildResult:
-    ...
-
-  async def send_command(
-      self, panel_url: str, api_key: str, server_id: str, command: str
-  ) -> None:
     ...
 
   async def trigger_restart(
@@ -146,20 +135,59 @@ class PterodactylGateway(Protocol):
   ) -> OperationResult:
     ...
 
-  async def rename_server(
-      self, panel_url: str, api_key: str, server_id: str, new_name: str
-  ) -> OperationResult:
-    ...
-
   async def execute_graceful_restart(
       self, panel_url: str, api_key: str, server_id: str
   ) -> None:
     ...
 
+
+@runtime_checkable
+class PterodactylInspectionGateway(Protocol):
+
+  async def get_server_name(
+      self, panel_url: str, api_key: str, server_id: str
+  ) -> ServerNameResult:
+    ...
+
+  async def get_server_allocation(
+      self, panel_url: str, api_key: str, server_id: str
+  ) -> ServerAllocation:
+    ...
+
+  async def get_local_build(
+      self, panel_url: str, api_key: str, server_id: str, manifest_path: str
+  ) -> LocalBuildResult:
+    ...
+
+
+@runtime_checkable
+class PterodactylManagementGateway(Protocol):
+
+  async def send_command(
+      self, panel_url: str, api_key: str, server_id: str, command: str
+  ) -> None:
+    ...
+
+  async def rename_server(
+      self, panel_url: str, api_key: str, server_id: str, new_name: str
+  ) -> OperationResult:
+    ...
+
   async def detect_server_details(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> dict:
+  ) -> DetectedServerDetails:
     ...
+
+
+@runtime_checkable
+class PterodactylGateway(
+    PublicIpGateway,
+    PterodactylPowerGateway,
+    PterodactylInspectionGateway,
+    PterodactylManagementGateway,
+    Protocol,
+):
+  pass
 
 
 @runtime_checkable
@@ -175,7 +203,7 @@ class SteamGateway(Protocol):
   ) -> Optional[Union[SteamPatchNotes, dict]]:
     ...
 
-  async def search_games(self, query: str) -> list[dict]:
+  async def search_games(self, query: str) -> list[SteamSearchResult]:
     ...
 
 
@@ -257,6 +285,9 @@ class PowerTrackerGateway(Protocol):
   def pop_just_started(self, server_id: str) -> bool:
     ...
 
+  def get_tracker_entry(self, server_id: str) -> Optional[PowerTrackerEntry]:
+    ...
+
 
 @runtime_checkable
 class StatusAggregationGateway(Protocol):
@@ -267,7 +298,7 @@ class StatusAggregationGateway(Protocol):
       ext_ip: Optional[str],
       idx: int,
       srv: ServerModel,
-  ) -> Any:
+  ) -> Optional[ServerStatusDTO]:
     ...
 
   async def get_status_snapshot(self) -> dict[str, Any]:

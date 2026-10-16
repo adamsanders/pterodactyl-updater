@@ -417,3 +417,114 @@ class WebhookPreview(BaseModel):
   message: str
   embed: Optional[dict] = None
   timestamp: str
+
+
+class DetectedServerDetails(BaseModel):
+  """Strongly-typed detection output for Pterodactyl server details."""
+  name: Optional[str] = None
+  app_id: Optional[str] = None
+  manifest_path: Optional[str] = None
+  detected: bool = False
+  error: Optional[str] = None
+
+  model_config = ConfigDict(populate_by_name=True)
+
+  def __getitem__(self, item: str) -> Any:
+    if hasattr(self, item):
+      return getattr(self, item)
+    raise KeyError(item)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    if hasattr(self, item):
+      val = getattr(self, item)
+      return val if val is not None else default
+    return default
+
+  def __contains__(self, item: str) -> bool:
+    return hasattr(self, item)
+
+
+class SteamSearchResult(BaseModel):
+  """Strongly-typed Steam search result model supporting dictionary access."""
+  app_id: str
+  name: str
+  type: Optional[str] = None
+  icon_url: Optional[str] = None
+  banner_url: Optional[str] = None
+
+  model_config = ConfigDict(populate_by_name=True)
+
+  def __init__(self, **data: Any):
+    if "appid" in data and "app_id" not in data:
+      data["app_id"] = str(data["appid"])
+    elif "app_id" in data:
+      data["app_id"] = str(data["app_id"])
+    super().__init__(**data)
+
+  @property
+  def appid(self) -> str:
+    return self.app_id
+
+  def __getitem__(self, item: str) -> Any:
+    if item == "appid":
+      return self.app_id
+    if hasattr(self, item):
+      return getattr(self, item)
+    raise KeyError(item)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    if item == "appid":
+      return self.app_id
+    if hasattr(self, item):
+      val = getattr(self, item)
+      return val if val is not None else default
+    return default
+
+  def __contains__(self, item: str) -> bool:
+    if item == "appid":
+      return True
+    return hasattr(self, item)
+
+  def __eq__(self, other: Any) -> bool:
+    if isinstance(other, dict):
+      other_id = other.get("app_id") or other.get("appid")
+      return str(self.app_id) == str(other_id) and self.name == other.get("name")
+    return super().__eq__(other)
+
+
+class PowerTrackerEntry(BaseModel):
+  """Strongly-typed power tracker internal state entry."""
+  raw_state: PowerState = PowerState.UNKNOWN
+  is_transitional: bool = False
+  effective_state: PowerState = PowerState.UNKNOWN
+  last_changed: float = 0.0
+  stable_since: float = 0.0
+  smoothed_state: PowerState = PowerState.UNKNOWN
+  cached_state: PowerState = PowerState.UNKNOWN
+  cache_expires: float = 0.0
+  starting_since: float = 0.0
+  startup_grace_until: float = 0.0
+  stopping_since: float = 0.0
+  stopped_during_start: bool = False
+  restart_lockout_until: float = 0.0
+  consecutive_offline: int = 0
+  just_started: bool = False
+
+  model_config = ConfigDict(arbitrary_types_allowed=True)
+
+  def __getitem__(self, item: str) -> Any:
+    if hasattr(self, item):
+      return getattr(self, item)
+    raise KeyError(item)
+
+  def __setitem__(self, key: str, value: Any) -> None:
+    setattr(self, key, value)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    if hasattr(self, item):
+      val = getattr(self, item)
+      return val if val is not None else default
+    return default
+
+  def __contains__(self, item: str) -> bool:
+    return hasattr(self, item)

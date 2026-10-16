@@ -5,7 +5,7 @@ from app.core.models import PowerState, ServerModel, ServerUpdateStatus
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
-    PterodactylGateway,
+    PterodactylInspectionGateway,
     RuntimeStateStoreProtocol,
     SteamGateway,
 )
@@ -23,7 +23,7 @@ class ServerInspectionService:
   def __init__(
       self,
       repository: ConfigRepositoryProtocol,
-      ptero: PterodactylGateway,
+      ptero: PterodactylInspectionGateway,
       steam: SteamGateway,
       countdown_coordinator: CountdownCoordinatorService,
       countdown: Optional[CountdownManagerProtocol] = None,

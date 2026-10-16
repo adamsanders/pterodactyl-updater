@@ -6,7 +6,7 @@ from app.core.models import OperationResult, PowerSignal, PowerState, ServerMode
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
-    PterodactylGateway,
+    PterodactylPowerGateway,
     RuntimeStateStoreProtocol,
     UpdateOrchestratorProtocol,
 )
@@ -20,7 +20,7 @@ class ServerPowerService:
   def __init__(
       self,
       repository: ConfigRepositoryProtocol,
-      ptero: PterodactylGateway,
+      ptero: PterodactylPowerGateway,
       countdown: CountdownManagerProtocol,
       orchestrator: Optional[UpdateOrchestratorProtocol] = None,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,

@@ -3,6 +3,7 @@ from typing import List, Optional, Union
 
 from app.core.exceptions import SimulationError
 from app.core.models import (
+    DetectedServerDetails,
     OperationResult,
     PowerSignal,
     PowerState,
@@ -10,6 +11,7 @@ from app.core.models import (
     ServerUpdateStatus,
     SettingsUpdateDTO,
     SingleServerSaveRequest,
+    SteamSearchResult,
 )
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -97,11 +99,11 @@ class ServerService:
   def preview_store(self) -> Optional[WebhookPreviewStore]:
     return self.announcements.preview_store
 
-  def save_settings(self, settings: SettingsUpdateDTO) -> None:
-    self.config_service.save_settings(settings)
+  def save_settings(self, settings: SettingsUpdateDTO):
+    return self.config_service.save_settings(settings)
 
-  def add_server(self, settings: SettingsUpdateDTO) -> None:
-    self.config_service.add_server(settings)
+  def add_server(self, settings: SettingsUpdateDTO):
+    return self.config_service.add_server(settings)
 
   def find_server_index(
       self, servers: List[ServerModel], identifier: Union[str, int]
@@ -110,8 +112,8 @@ class ServerService:
 
   def delete_server(
       self, identifier: Union[str, int], settings: SettingsUpdateDTO
-  ) -> None:
-    self.config_service.delete_server(identifier, settings)
+  ):
+    return self.config_service.delete_server(identifier, settings)
 
   async def rename_server(
       self,
@@ -219,8 +221,13 @@ class ServerService:
 
   def update_server_toggle(
       self, identifier: Union[str, int], field: str, value: bool
-  ) -> None:
-    self.config_service.update_server_toggle(identifier, field, value)
+  ):
+    return self.config_service.update_server_toggle(identifier, field, value)
+
+  async def toggle_server(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> ServerModel:
+    return await self.config_service.toggle_server(identifier, field, value)
 
   async def save_single_server(
       self,
@@ -229,8 +236,12 @@ class ServerService:
   ) -> ServerModel:
     return await self.config_service.save_single_server(identifier, data)
 
-  async def detect_server_details(self, server_id: str) -> dict:
+  async def detect_server_details(
+      self, server_id: str
+  ) -> DetectedServerDetails:
     return await self.config_service.detect_server_details(server_id)
 
-  async def search_steam_games(self, query: str) -> list[dict]:
+  async def search_steam_games(
+      self, query: str
+  ) -> list[SteamSearchResult]:
     return await self.config_service.search_steam_games(query)

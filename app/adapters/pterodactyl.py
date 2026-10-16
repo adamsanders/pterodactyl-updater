@@ -10,6 +10,7 @@ from app.adapters.power_tracker import PowerStateTracker
 from app.core.catalogs import IGNORED_STEAM_APPIDS, POPULAR_DEDICATED_SERVERS
 from app.core.exceptions import PterodactylApiError
 from app.core.models import (
+    DetectedServerDetails,
     LocalBuildResult,
     OperationResult,
     PowerSignal,
@@ -17,15 +18,20 @@ from app.core.models import (
     ServerAllocation,
     ServerNameResult,
 )
+from app.core.protocols import PowerTrackerGateway
 
 logger = logging.getLogger("updater.pterodactyl")
 
 
 class PterodactylAdapter:
 
-  def __init__(self, client: httpx.AsyncClient):
+  def __init__(
+      self,
+      client: httpx.AsyncClient,
+      tracker: Optional[PowerTrackerGateway] = None,
+  ):
     self._client = client
-    self._tracker = PowerStateTracker()
+    self._tracker = tracker if tracker is not None else PowerStateTracker()
 
   def _headers(self, api_key: str) -> dict:
     return {
@@ -164,7 +170,7 @@ class PterodactylAdapter:
       panel_url: str,
       api_key: str,
       server_id: str,
-  ) -> dict:
+  ) -> DetectedServerDetails:
     """Attempts to auto-detect server name, Steam App ID, and manifest path from Pterodactyl."""
     details = {
         "name": None,
@@ -259,7 +265,14 @@ class PterodactylAdapter:
     if details["app_id"] and not details["manifest_path"]:
       details["manifest_path"] = f"steamapps/appmanifest_{details['app_id']}.acf"
 
-    return details
+    detected = bool(details.get("name") or details.get("app_id") or details.get("manifest_path"))
+    return DetectedServerDetails(
+        name=details.get("name"),
+        app_id=details.get("app_id"),
+        manifest_path=details.get("manifest_path"),
+        detected=detected,
+        error=None,
+    )
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str

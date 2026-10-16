@@ -1,6 +1,6 @@
 import logging
 from typing import Optional, Union
-from app.core.models import SteamPatchNotes
+from app.core.models import SteamPatchNotes, SteamSearchResult
 from app.core.protocols import ConfigRepositoryProtocol, SteamGateway
 from app.services.build_simulator import BuildSimulatorStore
 
@@ -45,5 +45,10 @@ class SimulatedSteamAdapter:
   ) -> Optional[Union[SteamPatchNotes, dict]]:
     return await self._real_steam.fetch_patchnotes(appid)
 
-  async def search_games(self, query: str) -> list[dict]:
-    return await self._real_steam.search_games(query)
+  async def search_games(self, query: str) -> list[SteamSearchResult]:
+    res = await self._real_steam.search_games(query)
+    return [
+        r if isinstance(r, SteamSearchResult) else SteamSearchResult(**r)
+        for r in res
+    ]
+

@@ -1,3 +1,4 @@
+import inspect
 from typing import Optional
 from app.core.config import APP_VERSION, COMMIT_CODE
 from app.core.exceptions import (
@@ -175,7 +176,8 @@ async def detect_server_details(
     service: ServerService = Depends(get_service),
 ):
   details = await service.detect_server_details(server_id)
-  return JSONResponse({"status": "ok", "details": details})
+  data = details.model_dump() if hasattr(details, "model_dump") else details
+  return JSONResponse({"status": "ok", "details": data})
 
 
 @router.get("/api/steam/search")
@@ -184,7 +186,11 @@ async def search_steam_games(
     service: ServerService = Depends(get_service),
 ):
   results = await service.search_steam_games(q)
-  return JSONResponse({"status": "ok", "results": results})
+  serialized = [
+      r.model_dump(exclude_none=True) if hasattr(r, "model_dump") else r
+      for r in results
+  ]
+  return JSONResponse({"status": "ok", "results": serialized})
 
 
 @router.post("/api/servers/{server_id}/sync-name")
@@ -209,7 +215,9 @@ async def toggle_server_setting(
   body = await request.json()
   field = body.get("field", "")
   val = bool(body.get("value", False))
-  service.update_server_toggle(server_id, field, val)
+  res = service.update_server_toggle(server_id, field, val)
+  if inspect.isawaitable(res):
+    await res
   return JSONResponse({"status": "ok", "field": field, "value": val})
 
 
@@ -266,7 +274,9 @@ async def save_settings(
   settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.save_settings(settings)
+  res = service.save_settings(settings)
+  if inspect.isawaitable(res):
+    await res
   return RedirectResponse(url="/?toast=saved", status_code=303)
 
 
@@ -279,7 +289,9 @@ async def add_server(
   settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.add_server(settings)
+  res = service.add_server(settings)
+  if inspect.isawaitable(res):
+    await res
   return RedirectResponse(url="/?toast=server_added", status_code=303)
 
 
@@ -293,7 +305,9 @@ async def delete_server(
   settings = await SettingsFormData.from_form(
       await request.form(), repo.load().servers
   )
-  service.delete_server(server_id, settings)
+  res = service.delete_server(server_id, settings)
+  if inspect.isawaitable(res):
+    await res
   return RedirectResponse(url="/?toast=server_removed", status_code=303)
 
 

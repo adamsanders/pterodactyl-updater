@@ -1,3 +1,4 @@
+import inspect
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -331,19 +332,25 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     # 1. save_settings
     cfg1 = AppConfigModel(ssl_verify=False)
     self.repo.load.return_value = cfg1
-    self.service.save_settings(SettingsUpdateDTO(ssl_verify=True))
+    res1 = self.service.save_settings(SettingsUpdateDTO(ssl_verify=True))
+    if inspect.isawaitable(res1):
+      await res1
     self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
 
     # 2. add_server
     cfg2 = AppConfigModel(ssl_verify=False)
     self.repo.load.return_value = cfg2
-    self.service.add_server(SettingsUpdateDTO(ssl_verify=True))
+    res2 = self.service.add_server(SettingsUpdateDTO(ssl_verify=True))
+    if inspect.isawaitable(res2):
+      await res2
     self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
 
     # 3. delete_server
     cfg3 = AppConfigModel(ssl_verify=False, servers=[ServerModel(name="Srv1", server_id="s1")])
     self.repo.load.return_value = cfg3
-    self.service.delete_server("s1", SettingsUpdateDTO(ssl_verify=True, servers=[ServerModel(name="Srv1", server_id="s1")]))
+    res3 = self.service.delete_server("s1", SettingsUpdateDTO(ssl_verify=True, servers=[ServerModel(name="Srv1", server_id="s1")]))
+    if inspect.isawaitable(res3):
+      await res3
     self.assertTrue(self.repo.save.call_args[0][0].ssl_verify)
 
     # 4. rename_server

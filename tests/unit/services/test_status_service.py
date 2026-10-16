@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.core.catalogs import PORT_OFFSET_MAP, resolve_query_port
 from app.core.config import APP_VERSION, COMMIT_CODE
-from app.core.models import AppConfigModel, ServerModel, WebhookPreview
+from app.core.models import AppConfigModel, PowerState, ServerModel, WebhookPreview
 from app.services.status_service import StatusAggregationService
 
 
@@ -272,6 +272,47 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(server_data["port"], 8211)
     # Palworld has no entry in PORT_OFFSET_MAP -> port 8211
     self.assertEqual(server_data["query_port"], 8211)
+
+  async def test_explicit_power_tracker_injection(self):
+    mock_tracker = MagicMock()
+    mock_tracker.get_valid_cache.return_value = PowerState.STARTING
+    service = StatusAggregationService(
+        repository=self.repo,
+        ptero=self.ptero,
+        countdown=self.countdown,
+        preview_store=self.preview_store,
+        power_tracker=mock_tracker,
+    )
+    self.assertIs(service.power_tracker, mock_tracker)
+
+    srv = ServerModel(name="Enshrouded", server_id="srv-1", app_id="2278520")
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[srv])
+    self.countdown.is_running.return_value = False
+
+    status = await service.get_single_server_status(cfg, "1.2.3.4", 0, srv)
+    self.assertIsNotNone(status)
+    self.assertEqual(status.power_state, PowerState.STARTING)
+    mock_tracker.get_valid_cache.assert_called_with("srv-1")
+    self.ptero.get_power_state.assert_not_called()
+
+  async def test_status_aggregation_service_without_power_tracker(self):
+    service = StatusAggregationService(
+        repository=self.repo,
+        ptero=self.ptero,
+        countdown=self.countdown,
+        preview_store=self.preview_store,
+        power_tracker=None,
+    )
+    self.assertIsNone(service.power_tracker)
+    srv = ServerModel(name="Enshrouded", server_id="srv-1", app_id="2278520")
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[srv])
+    self.ptero.get_power_state.return_value = "running"
+    self.countdown.is_running.return_value = False
+
+    status = await service.get_single_server_status(cfg, "1.2.3.4", 0, srv)
+    self.assertIsNotNone(status)
+    self.assertEqual(status.power_state, PowerState.RUNNING)
+    self.ptero.get_power_state.assert_called_once()
 
 
 class TestResolveQueryPort(unittest.TestCase):

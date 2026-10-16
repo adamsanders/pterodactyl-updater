@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List, Optional, Union
 
@@ -7,9 +8,11 @@ from app.core.exceptions import (
     ServerNotFoundError,
 )
 from app.core.models import (
+    DetectedServerDetails,
     ServerModel,
     SettingsUpdateDTO,
     SingleServerSaveRequest,
+    SteamSearchResult,
 )
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -19,6 +22,23 @@ from app.core.protocols import (
 )
 
 logger = logging.getLogger("updater.server_config")
+
+
+class _LockableOperation:
+  """Ensures read-modify-write configuration cycles are serialized via asyncio.Lock."""
+
+  def __init__(self, lock: asyncio.Lock, sync_fn, *args, **kwargs):
+    self._lock = lock
+    self._sync_fn = sync_fn
+    self._args = args
+    self._kwargs = kwargs
+
+  def __await__(self):
+    return self._run_async().__await__()
+
+  async def _run_async(self):
+    async with self._lock:
+      return self._sync_fn(*self._args, **self._kwargs)
 
 
 class ServerConfigService:
@@ -35,6 +55,7 @@ class ServerConfigService:
     self.ptero = ptero
     self.steam = steam
     self.runtime_state = runtime_state
+    self._lock = asyncio.Lock()
 
   def find_server_index(
       self, servers: List[ServerModel], identifier: Union[str, int]
@@ -60,8 +81,15 @@ class ServerConfigService:
 
     return None
 
-  def save_settings(self, settings: SettingsUpdateDTO) -> None:
+  def save_settings(self, settings: SettingsUpdateDTO):
     """Persists global settings and updates runtime state store tracking."""
+    try:
+      asyncio.get_running_loop()
+      return _LockableOperation(self._lock, self._execute_save_settings, settings)
+    except RuntimeError:
+      return self._execute_save_settings(settings)
+
+  def _execute_save_settings(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -86,8 +114,15 @@ class ServerConfigService:
         if s.server_id:
           self.runtime_state.get_server_state(s.server_id)
 
-  def add_server(self, settings: SettingsUpdateDTO) -> None:
+  def add_server(self, settings: SettingsUpdateDTO):
     """Appends a new unconfigured server template to configuration."""
+    try:
+      asyncio.get_running_loop()
+      return _LockableOperation(self._lock, self._execute_add_server, settings)
+    except RuntimeError:
+      return self._execute_add_server(settings)
+
+  def _execute_add_server(self, settings: SettingsUpdateDTO) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -113,8 +148,19 @@ class ServerConfigService:
 
   def delete_server(
       self, identifier: Union[str, int], settings: SettingsUpdateDTO
-  ) -> None:
+  ):
     """Deletes a server entry and cleans up ephemeral runtime telemetry."""
+    try:
+      asyncio.get_running_loop()
+      return _LockableOperation(
+          self._lock, self._execute_delete_server, identifier, settings
+      )
+    except RuntimeError:
+      return self._execute_delete_server(identifier, settings)
+
+  def _execute_delete_server(
+      self, identifier: Union[str, int], settings: SettingsUpdateDTO
+  ) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -151,42 +197,43 @@ class ServerConfigService:
     if not new_name:
       return False
 
-    idx = self.find_server_index(settings.servers, identifier)
-    if idx is None:
-      return False
+    async with self._lock:
+      idx = self.find_server_index(settings.servers, identifier)
+      if idx is None:
+        return False
 
-    target_server = settings.servers[idx]
-    success, err = await self.ptero.rename_server(
-        settings.panel_url, settings.api_key, target_server.server_id, new_name
-    )
+      target_server = settings.servers[idx]
+      success, err = await self.ptero.rename_server(
+          settings.panel_url, settings.api_key, target_server.server_id, new_name
+      )
 
-    cfg = self.repo.load()
-    cfg.panel_url = settings.panel_url
-    cfg.api_key = settings.api_key
-    cfg.check_interval = settings.check_interval
-    cfg.discord_webhook = settings.discord_webhook
-    cfg.test_mode = settings.test_mode
-    cfg.ssl_verify = settings.ssl_verify
-    cfg.servers = list(settings.servers)
+      cfg = self.repo.load()
+      cfg.panel_url = settings.panel_url
+      cfg.api_key = settings.api_key
+      cfg.check_interval = settings.check_interval
+      cfg.discord_webhook = settings.discord_webhook
+      cfg.test_mode = settings.test_mode
+      cfg.ssl_verify = settings.ssl_verify
+      cfg.servers = list(settings.servers)
 
-    repo_idx = self.find_server_index(cfg.servers, identifier)
-    if repo_idx is not None:
-      if success:
-        cfg.servers[repo_idx].name = new_name
-        cfg.servers[repo_idx].last_status = "Renamed in Pterodactyl"
-        if self.runtime_state:
-          self.runtime_state.update_server_state(
-              target_server.server_id, last_status="Renamed in Pterodactyl"
-          )
-      else:
-        cfg.servers[repo_idx].last_status = f"Rename failed: {err}"
-        if self.runtime_state:
-          self.runtime_state.update_server_state(
-              target_server.server_id, last_status=f"Rename failed: {err}"
-          )
+      repo_idx = self.find_server_index(cfg.servers, identifier)
+      if repo_idx is not None:
+        if success:
+          cfg.servers[repo_idx].name = new_name
+          cfg.servers[repo_idx].last_status = "Renamed in Pterodactyl"
+          if self.runtime_state:
+            self.runtime_state.update_server_state(
+                target_server.server_id, last_status="Renamed in Pterodactyl"
+            )
+        else:
+          cfg.servers[repo_idx].last_status = f"Rename failed: {err}"
+          if self.runtime_state:
+            self.runtime_state.update_server_state(
+                target_server.server_id, last_status=f"Rename failed: {err}"
+            )
 
-    self.repo.save(cfg)
-    return success
+      self.repo.save(cfg)
+      return success
 
   async def lookup_server_name(self, server_id: str) -> str:
     """Looks up server name from Pterodactyl Panel for a given server ID without saving."""
@@ -247,8 +294,19 @@ class ServerConfigService:
 
   def update_server_toggle(
       self, identifier: Union[str, int], field: str, value: bool
-  ) -> None:
+  ):
     """Toggles and immediately persists a single boolean setting on a server."""
+    try:
+      asyncio.get_running_loop()
+      return _LockableOperation(
+          self._lock, self._execute_update_server_toggle, identifier, field, value
+      )
+    except RuntimeError:
+      return self._execute_update_server_toggle(identifier, field, value)
+
+  def _execute_update_server_toggle(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> None:
     allowed_fields = {
         "auto_restart",
         "discord_alerts",
@@ -267,6 +325,14 @@ class ServerConfigService:
 
     setattr(cfg.servers[idx], field, bool(value))
     self.repo.save(cfg)
+    return cfg.servers[idx]
+
+  async def toggle_server(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> ServerModel:
+    """Serialized asynchronous toggle server setting alias."""
+    async with self._lock:
+      return self._execute_update_server_toggle(identifier, field, value)
 
   async def save_single_server(
       self,
@@ -274,102 +340,103 @@ class ServerConfigService:
       data: Union[SingleServerSaveRequest, dict],
   ) -> ServerModel:
     """Persists structured configuration changes for an individual server card."""
-    cfg = self.repo.load()
-    idx = self.find_server_index(cfg.servers, identifier)
-    if idx is None:
-      raise ServerNotFoundError(str(identifier))
+    async with self._lock:
+      cfg = self.repo.load()
+      idx = self.find_server_index(cfg.servers, identifier)
+      if idx is None:
+        raise ServerNotFoundError(str(identifier))
 
-    srv = cfg.servers[idx]
-    old_server_id = srv.server_id
+      srv = cfg.servers[idx]
+      old_server_id = srv.server_id
 
-    if isinstance(data, SingleServerSaveRequest):
-      fields = data.model_fields_set
-      if "server_id" in fields and data.server_id.strip():
-        srv.server_id = data.server_id.strip()
-      elif not srv.server_id and data.server_id:
-        srv.server_id = data.server_id.strip()
+      if isinstance(data, SingleServerSaveRequest):
+        fields = data.model_fields_set
+        if "server_id" in fields and data.server_id.strip():
+          srv.server_id = data.server_id.strip()
+        elif not srv.server_id and data.server_id:
+          srv.server_id = data.server_id.strip()
 
-      if "app_id" in fields or data.app_id:
-        srv.app_id = data.app_id.strip()
+        if "app_id" in fields or data.app_id:
+          srv.app_id = data.app_id.strip()
 
-      if "manifest_path" in fields or data.manifest_path:
-        srv.manifest_path = data.manifest_path.strip()
+        if "manifest_path" in fields or data.manifest_path:
+          srv.manifest_path = data.manifest_path.strip()
 
-      if "query_port_offset" in fields or data.query_port_offset is not None:
-        srv.query_port_offset = data.query_port_offset
+        if "query_port_offset" in fields or data.query_port_offset is not None:
+          srv.query_port_offset = data.query_port_offset
 
-      if "broadcast_command_template" in fields or data.broadcast_command_template:
-        srv.broadcast_command_template = (
-            data.broadcast_command_template.strip() or "say {message}"
-        )
-      name_input = data.name.strip() if "name" in fields else ""
-    else:
-      if "server_id" in data and str(data["server_id"]).strip():
-        srv.server_id = str(data["server_id"]).strip()
-      if "app_id" in data:
-        srv.app_id = str(data["app_id"]).strip()
-      if "manifest_path" in data:
-        srv.manifest_path = str(data["manifest_path"]).strip()
-      if "broadcast_command_template" in data:
-        srv.broadcast_command_template = (
-            str(data["broadcast_command_template"]).strip() or "say {message}"
-        )
+        if "broadcast_command_template" in fields or data.broadcast_command_template:
+          srv.broadcast_command_template = (
+              data.broadcast_command_template.strip() or "say {message}"
+          )
+        name_input = data.name.strip() if "name" in fields else ""
+      else:
+        if "server_id" in data and str(data["server_id"]).strip():
+          srv.server_id = str(data["server_id"]).strip()
+        if "app_id" in data:
+          srv.app_id = str(data["app_id"]).strip()
+        if "manifest_path" in data:
+          srv.manifest_path = str(data["manifest_path"]).strip()
+        if "broadcast_command_template" in data:
+          srv.broadcast_command_template = (
+              str(data["broadcast_command_template"]).strip() or "say {message}"
+          )
 
-      found_offset = False
-      for key in (
-          "query_port_offset",
-          "port_offset",
-          "srv_port_offset",
-          "srv_query_port_offset",
-      ):
-        if key in data:
-          try:
-            srv.query_port_offset = int(data[key])
-          except (ValueError, TypeError):
-            srv.query_port_offset = 0
-          found_offset = True
-          break
+        found_offset = False
+        for key in (
+            "query_port_offset",
+            "port_offset",
+            "srv_port_offset",
+            "srv_query_port_offset",
+        ):
+          if key in data:
+            try:
+              srv.query_port_offset = int(data[key])
+            except (ValueError, TypeError):
+              srv.query_port_offset = 0
+            found_offset = True
+            break
 
-      if not found_offset:
-        indexed_key = f"srv_port_offset_{idx}"
-        if indexed_key in data:
-          try:
-            srv.query_port_offset = int(data[indexed_key])
-          except (ValueError, TypeError):
-            srv.query_port_offset = 0
-        elif srv.server_id and f"srv_port_offset_{srv.server_id}" in data:
-          try:
-            srv.query_port_offset = int(data[f"srv_port_offset_{srv.server_id}"])
-          except (ValueError, TypeError):
-            srv.query_port_offset = 0
+        if not found_offset:
+          indexed_key = f"srv_port_offset_{idx}"
+          if indexed_key in data:
+            try:
+              srv.query_port_offset = int(data[indexed_key])
+            except (ValueError, TypeError):
+              srv.query_port_offset = 0
+          elif srv.server_id and f"srv_port_offset_{srv.server_id}" in data:
+            try:
+              srv.query_port_offset = int(data[f"srv_port_offset_{srv.server_id}"])
+            except (ValueError, TypeError):
+              srv.query_port_offset = 0
 
-      name_input = str(data.get("name", "")).strip() if "name" in data else ""
+        name_input = str(data.get("name", "")).strip() if "name" in data else ""
 
-    if name_input and name_input != "New Server":
-      srv.name = name_input
-    elif srv.server_id and cfg.panel_url and cfg.api_key:
-      try:
-        res = await self.ptero.get_server_name(
-            cfg.panel_url, cfg.api_key, srv.server_id
-        )
-        if res.name:
-          srv.name = res.name
-      except Exception:
-        if name_input:
-          srv.name = name_input
+      if name_input and name_input != "New Server":
+        srv.name = name_input
+      elif srv.server_id and cfg.panel_url and cfg.api_key:
+        try:
+          res = await self.ptero.get_server_name(
+              cfg.panel_url, cfg.api_key, srv.server_id
+          )
+          if res.name:
+            srv.name = res.name
+        except Exception:
+          if name_input:
+            srv.name = name_input
 
-    self.repo.save(cfg)
-    if self.runtime_state:
-      if (
-          old_server_id
-          and old_server_id.strip().lower() != srv.server_id.strip().lower()
-      ):
-        self.runtime_state.rename_server_state(old_server_id, srv.server_id)
-      elif srv.server_id:
-        self.runtime_state.get_server_state(srv.server_id)
-    return srv
+      self.repo.save(cfg)
+      if self.runtime_state:
+        if (
+            old_server_id
+            and old_server_id.strip().lower() != srv.server_id.strip().lower()
+        ):
+          self.runtime_state.rename_server_state(old_server_id, srv.server_id)
+        elif srv.server_id:
+          self.runtime_state.get_server_state(srv.server_id)
+      return srv
 
-  async def detect_server_details(self, server_id: str) -> dict:
+  async def detect_server_details(self, server_id: str) -> DetectedServerDetails:
     """Queries Pterodactyl Panel to detect server name, Steam App ID, and manifest path."""
     sid = server_id.strip()
     if not sid:
@@ -381,6 +448,7 @@ class ServerConfigService:
       )
     return await self.ptero.detect_server_details(cfg.panel_url, cfg.api_key, sid)
 
-  async def search_steam_games(self, query: str) -> list[dict]:
+  async def search_steam_games(self, query: str) -> list[SteamSearchResult]:
     """Searches Steam catalog and dedicated servers by query."""
     return await self.steam.search_games(query)
+

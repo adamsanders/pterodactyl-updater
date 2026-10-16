@@ -5,6 +5,7 @@ import os
 import time
 from app.adapters.a2s import A2SAdapter
 from app.adapters.discord import DiscordAdapter
+from app.adapters.power_tracker import PowerStateTracker
 from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.repository import ConfigRepository
 from app.adapters.simulated_steam import SimulatedSteamAdapter
@@ -78,7 +79,8 @@ async def lifespan(application: FastAPI):
     runtime_state = RuntimeStateStore()
     runtime_state.seed_from_config(cfg)
 
-    ptero = PterodactylAdapter(client=http_client)
+    power_tracker = PowerStateTracker()
+    ptero = PterodactylAdapter(client=http_client, tracker=power_tracker)
     real_steam = SteamAdapter(client=http_client)
     discord = DiscordAdapter(client=http_client)
     a2s = A2SAdapter(call_tracker=call_tracker)
@@ -132,11 +134,12 @@ async def lifespan(application: FastAPI):
         a2s=a2s,
         call_tracker=call_tracker,
         runtime_state=runtime_state,
-        power_tracker=getattr(ptero, "_tracker", None),
+        power_tracker=power_tracker,
     )
 
     application.state.repo = repo
     application.state.runtime_state = runtime_state
+    application.state.power_tracker = power_tracker
     application.state.ptero = ptero
     application.state.steam = simulated_steam
     application.state.discord = discord

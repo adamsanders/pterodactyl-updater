@@ -8,7 +8,7 @@ from app.core.models import ServerModel, SteamPatchNotes, WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     NotificationGateway,
-    PterodactylGateway,
+    PterodactylManagementGateway,
     SteamGateway,
 )
 from app.services.preview_store import WebhookPreviewStore
@@ -22,7 +22,7 @@ class AnnouncementService:
   def __init__(
       self,
       repository: ConfigRepositoryProtocol,
-      ptero: PterodactylGateway,
+      ptero: PterodactylManagementGateway,
       steam: Optional[SteamGateway] = None,
       discord: Optional[NotificationGateway] = None,
       preview_store: Optional[WebhookPreviewStore] = None,

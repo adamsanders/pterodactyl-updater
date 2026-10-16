@@ -7,6 +7,7 @@ from app.core.protocols import (
     CallTrackerProtocol,
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
+    PowerTrackerGateway,
     PterodactylGateway,
     RuntimeStateStoreProtocol,
 )
@@ -54,6 +55,10 @@ def get_runtime_state(request: Request) -> Optional[RuntimeStateStoreProtocol]:
   return getattr(request.app.state, "runtime_state", None)
 
 
+def get_power_tracker(request: Request) -> Optional[PowerTrackerGateway]:
+  return getattr(request.app.state, "power_tracker", None)
+
+
 def get_status_service(request: Request) -> StatusAggregationService:
   if not hasattr(request.app.state, "status_service"):
     request.app.state.status_service = StatusAggregationService(
@@ -65,6 +70,7 @@ def get_status_service(request: Request) -> StatusAggregationService:
         a2s=get_a2s(request),
         call_tracker=getattr(request.app.state, "call_tracker", None),
         runtime_state=get_runtime_state(request),
-        power_tracker=getattr(get_ptero(request), "_tracker", None),
+        power_tracker=get_power_tracker(request),
     )
   return request.app.state.status_service
+

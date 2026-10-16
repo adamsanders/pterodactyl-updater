@@ -19,6 +19,10 @@ from app.core.protocols import (
     PlayerQueryGateway,
     PowerTrackerGateway,
     PterodactylGateway,
+    PterodactylInspectionGateway,
+    PterodactylManagementGateway,
+    PterodactylPowerGateway,
+    PublicIpGateway,
     StatusAggregationGateway,
     SteamGateway,
 )
@@ -49,6 +53,47 @@ class TestProtocolConformance(unittest.TestCase):
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     adapter = PterodactylAdapter(mock_client)
     self.assertIsInstance(adapter, PterodactylGateway)
+    self.assertIsInstance(adapter, PublicIpGateway)
+    self.assertIsInstance(adapter, PterodactylPowerGateway)
+    self.assertIsInstance(adapter, PterodactylInspectionGateway)
+    self.assertIsInstance(adapter, PterodactylManagementGateway)
+
+  def test_partial_pterodactyl_implementation_conforms_to_subprotocol_only(self):
+    class PartialPowerAdapter:
+      async def get_power_state(self, panel_url, api_key, server_id):
+        pass
+      def consume_startup_transition(self, server_id):
+        pass
+      def invalidate_power_cache(self, server_id=None):
+        pass
+      async def trigger_restart(self, panel_url, api_key, server_id):
+        pass
+      async def send_power_signal(self, panel_url, api_key, server_id, signal):
+        pass
+      async def execute_graceful_restart(self, panel_url, api_key, server_id):
+        pass
+
+    partial = PartialPowerAdapter()
+    self.assertIsInstance(partial, PterodactylPowerGateway)
+    self.assertNotIsInstance(partial, PterodactylGateway)
+    self.assertNotIsInstance(partial, PterodactylInspectionGateway)
+    self.assertNotIsInstance(partial, PterodactylManagementGateway)
+    self.assertNotIsInstance(partial, PublicIpGateway)
+
+    class PartialInspectionAdapter:
+      async def get_server_name(self, panel_url, api_key, server_id):
+        pass
+      async def get_server_allocation(self, panel_url, api_key, server_id):
+        pass
+      async def get_local_build(self, panel_url, api_key, server_id, manifest_path):
+        pass
+
+    partial_inspect = PartialInspectionAdapter()
+    self.assertIsInstance(partial_inspect, PterodactylInspectionGateway)
+    self.assertNotIsInstance(partial_inspect, PterodactylGateway)
+    self.assertNotIsInstance(partial_inspect, PterodactylPowerGateway)
+    self.assertNotIsInstance(partial_inspect, PterodactylManagementGateway)
+    self.assertNotIsInstance(partial_inspect, PublicIpGateway)
 
   def test_discord_adapter_conforms_to_notification_gateway(self):
     mock_client = AsyncMock(spec=httpx.AsyncClient)

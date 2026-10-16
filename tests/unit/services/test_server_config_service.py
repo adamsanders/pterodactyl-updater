@@ -1,3 +1,5 @@
+import asyncio
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -147,3 +149,191 @@ class TestServerConfigService(unittest.IsolatedAsyncioTestCase):
 
     with self.assertRaises(ServerNotFoundError):
       self.service.update_server_toggle("non_existent", "auto_restart", True)
+
+  async def test_toggle_server_method(self):
+    srv = ServerModel(
+        name="Valheim",
+        server_id="srv-1",
+        auto_restart=False,
+        auto_update=True,
+    )
+    cfg = AppConfigModel(servers=[srv])
+    self.repo.load.return_value = cfg
+
+    res = await self.service.toggle_server("srv-1", "auto_restart", True)
+    self.assertTrue(res.auto_restart)
+    self.assertTrue(srv.auto_restart)
+
+    res2 = await self.service.toggle_server("srv-1", "discord_alerts", False)
+    self.assertFalse(res2.discord_alerts)
+    self.assertFalse(srv.discord_alerts)
+
+    with self.assertRaises(ConfigurationError):
+      await self.service.toggle_server("srv-1", "invalid_field", True)
+
+    with self.assertRaises(ServerNotFoundError):
+      await self.service.toggle_server("non_existent", "auto_restart", True)
+
+  async def test_concurrent_read_modify_write_serialized_with_lock(self):
+    class ConcurrencyTestRepo:
+      def __init__(self, initial_cfg: AppConfigModel):
+        self.cfg = initial_cfg.model_copy(deep=True)
+        self.active_writers = 0
+        self.max_concurrent_writers = 0
+
+      def load(self) -> AppConfigModel:
+        return self.cfg.model_copy(deep=True)
+
+      def save(self, config: AppConfigModel) -> None:
+        self.active_writers += 1
+        if self.active_writers > self.max_concurrent_writers:
+          self.max_concurrent_writers = self.active_writers
+        time.sleep(0.005)
+        self.cfg = config.model_copy(deep=True)
+        self.active_writers -= 1
+
+    initial_servers = [
+        ServerModel(name=f"Server {i}", server_id=f"srv-{i}", auto_restart=False)
+        for i in range(5)
+    ]
+    repo = ConcurrencyTestRepo(AppConfigModel(servers=initial_servers))
+    service = ServerConfigService(
+        repository=repo,
+        ptero=self.ptero,
+        steam=self.steam,
+        runtime_state=self.runtime_state,
+    )
+
+    async def toggle_one(idx: int):
+      await service.toggle_server(f"srv-{idx}", "auto_restart", True)
+
+    tasks = [toggle_one(i) for i in range(5)]
+    await asyncio.gather(*tasks)
+
+    # Concurrency verification:
+    # 1. Mutex prevented simultaneous writes (max_concurrent_writers == 1)
+    self.assertEqual(repo.max_concurrent_writers, 1)
+    # 2. No lost updates: all 5 servers were updated to True
+    self.assertEqual(len(repo.cfg.servers), 5)
+    for s in repo.cfg.servers:
+      self.assertTrue(s.auto_restart)
+
+  async def test_concurrent_save_settings_serialized_with_lock(self):
+    class ConcurrencyTestRepo:
+      def __init__(self, initial_cfg: AppConfigModel):
+        self.cfg = initial_cfg.model_copy(deep=True)
+        self.active_writers = 0
+        self.max_concurrent_writers = 0
+
+      def load(self) -> AppConfigModel:
+        return self.cfg.model_copy(deep=True)
+
+      def save(self, config: AppConfigModel) -> None:
+        self.active_writers += 1
+        if self.active_writers > self.max_concurrent_writers:
+          self.max_concurrent_writers = self.active_writers
+        time.sleep(0.005)
+        self.cfg = config.model_copy(deep=True)
+        self.active_writers -= 1
+
+    repo = ConcurrencyTestRepo(AppConfigModel(servers=[]))
+    service = ServerConfigService(
+        repository=repo,
+        ptero=self.ptero,
+        steam=self.steam,
+        runtime_state=self.runtime_state,
+    )
+
+    async def save_one(val: int):
+      await service.save_settings(SettingsUpdateDTO(check_interval=val + 1, servers=[]))
+
+    tasks = [save_one(i) for i in range(5)]
+    await asyncio.gather(*tasks)
+
+    self.assertEqual(repo.max_concurrent_writers, 1)
+
+  async def test_concurrent_update_server_toggle_serialized_with_lock(self):
+    class ConcurrencyTestRepo:
+      def __init__(self, initial_cfg: AppConfigModel):
+        self.cfg = initial_cfg.model_copy(deep=True)
+        self.active_writers = 0
+        self.max_concurrent_writers = 0
+
+      def load(self) -> AppConfigModel:
+        return self.cfg.model_copy(deep=True)
+
+      def save(self, config: AppConfigModel) -> None:
+        self.active_writers += 1
+        if self.active_writers > self.max_concurrent_writers:
+          self.max_concurrent_writers = self.active_writers
+        time.sleep(0.005)
+        self.cfg = config.model_copy(deep=True)
+        self.active_writers -= 1
+
+    initial_servers = [
+        ServerModel(name=f"Server {i}", server_id=f"srv-{i}", auto_restart=False)
+        for i in range(5)
+    ]
+    repo = ConcurrencyTestRepo(AppConfigModel(servers=initial_servers))
+    service = ServerConfigService(
+        repository=repo,
+        ptero=self.ptero,
+        steam=self.steam,
+        runtime_state=self.runtime_state,
+    )
+
+    async def toggle_one(idx: int):
+      await service.update_server_toggle(f"srv-{idx}", "auto_restart", True)
+
+    tasks = [toggle_one(i) for i in range(5)]
+    await asyncio.gather(*tasks)
+
+    self.assertEqual(repo.max_concurrent_writers, 1)
+    for s in repo.cfg.servers:
+      self.assertTrue(s.auto_restart)
+
+  async def test_concurrent_interleaved_save_single_server_and_toggle_server(self):
+    class ConcurrencyTestRepo:
+      def __init__(self, initial_cfg: AppConfigModel):
+        self.cfg = initial_cfg.model_copy(deep=True)
+        self.active_writers = 0
+        self.max_concurrent_writers = 0
+
+      def load(self) -> AppConfigModel:
+        return self.cfg.model_copy(deep=True)
+
+      def save(self, config: AppConfigModel) -> None:
+        self.active_writers += 1
+        if self.active_writers > self.max_concurrent_writers:
+          self.max_concurrent_writers = self.active_writers
+        time.sleep(0.005)
+        self.cfg = config.model_copy(deep=True)
+        self.active_writers -= 1
+
+    ptero = AsyncMock()
+    async def delayed_get_server_name(*args, **kwargs):
+      await asyncio.sleep(0.02)
+      return ServerNameResult("Synced Remote Name", None)
+    ptero.get_server_name = delayed_get_server_name
+
+    initial_servers = [ServerModel(name="Init", server_id="srv-1", auto_restart=False)]
+    repo = ConcurrencyTestRepo(AppConfigModel(panel_url="http://panel.test", api_key="k", servers=initial_servers))
+    service = ServerConfigService(
+        repository=repo,
+        ptero=ptero,
+        steam=self.steam,
+        runtime_state=self.runtime_state,
+    )
+
+    async def single_save():
+      await service.save_single_server("srv-1", {"name": ""})
+
+    async def toggle_save():
+      await asyncio.sleep(0.005)  # fire while save_single_server is awaiting Pterodactyl get_server_name
+      await service.toggle_server("srv-1", "auto_restart", True)
+
+    await asyncio.gather(single_save(), toggle_save())
+
+    self.assertEqual(repo.max_concurrent_writers, 1)
+    self.assertEqual(repo.cfg.servers[0].name, "Synced Remote Name")
+    self.assertTrue(repo.cfg.servers[0].auto_restart)

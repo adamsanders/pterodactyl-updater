@@ -16,15 +16,18 @@ from app.core.exceptions import (
     SteamApiError,
 )
 from app.core.models import (
+    DetectedServerDetails,
     LocalBuildResult,
     OperationResult,
     PlayerMetrics,
     PowerSignal,
     PowerState,
+    PowerTrackerEntry,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
     ServerStatusDTO,
+    SteamSearchResult,
 )
 from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.steam import SteamAdapter
@@ -699,6 +702,82 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
 
     restored = SettingsUpdateDTO.model_validate({"ssl_verify": True})
     self.assertTrue(restored.ssl_verify)
+
+
+class TestMilestone7DomainModels(unittest.TestCase):
+
+  def test_detected_server_details(self):
+    details = DetectedServerDetails(
+        name="Enshrouded Server",
+        app_id="2278520",
+        manifest_path="steamapps/appmanifest_2278520.acf",
+        detected=True,
+        error=None,
+    )
+    self.assertEqual(details.name, "Enshrouded Server")
+    self.assertEqual(details.app_id, "2278520")
+    self.assertTrue(details.detected)
+    # Dictionary access compatibility
+    self.assertEqual(details["app_id"], "2278520")
+    self.assertEqual(details.get("name"), "Enshrouded Server")
+    self.assertEqual(details.get("missing_key", "default"), "default")
+    self.assertIn("app_id", details)
+    self.assertIn("manifest_path", details)
+    with self.assertRaises(KeyError):
+      _ = details["non_existent"]
+    # Serialization
+    dumped = details.model_dump()
+    self.assertEqual(dumped["app_id"], "2278520")
+    self.assertTrue(dumped["detected"])
+
+  def test_steam_search_result(self):
+    # Construction with app_id
+    res1 = SteamSearchResult(
+        app_id="2278520",
+        name="Enshrouded",
+        type="dedicated_server",
+    )
+    self.assertEqual(res1.app_id, "2278520")
+    self.assertEqual(res1.appid, "2278520")
+    self.assertEqual(res1["app_id"], "2278520")
+    self.assertEqual(res1["appid"], "2278520")
+    self.assertEqual(res1.get("app_id"), "2278520")
+    self.assertEqual(res1.get("appid"), "2278520")
+    self.assertIn("app_id", res1)
+    self.assertIn("appid", res1)
+    self.assertEqual(res1, {"app_id": "2278520", "name": "Enshrouded"})
+    self.assertEqual(res1, {"appid": "2278520", "name": "Enshrouded"})
+
+    # Construction with appid alias
+    res2 = SteamSearchResult(appid="896660", name="Valheim")
+    self.assertEqual(res2.app_id, "896660")
+    self.assertEqual(res2.appid, "896660")
+
+    # Serialization with exclude_none
+    dumped = res1.model_dump(exclude_none=True)
+    self.assertEqual(dumped, {"app_id": "2278520", "name": "Enshrouded", "type": "dedicated_server"})
+
+  def test_power_tracker_entry(self):
+    entry = PowerTrackerEntry(
+        raw_state=PowerState.STARTING,
+        is_transitional=True,
+        effective_state=PowerState.STARTING,
+        last_changed=100.0,
+        stable_since=0.0,
+    )
+    self.assertEqual(entry.raw_state, PowerState.STARTING)
+    self.assertTrue(entry.is_transitional)
+    self.assertEqual(entry.effective_state, PowerState.STARTING)
+
+    # Dictionary read/write compatibility
+    self.assertEqual(entry["raw_state"], PowerState.STARTING)
+    entry["cached_state"] = PowerState.RUNNING
+    self.assertEqual(entry.cached_state, PowerState.RUNNING)
+    self.assertEqual(entry["cached_state"], PowerState.RUNNING)
+    self.assertEqual(entry.get("cached_state"), PowerState.RUNNING)
+    self.assertIn("cached_state", entry)
+    with self.assertRaises(KeyError):
+      _ = entry["invalid_key"]
 
 
 if __name__ == "__main__":

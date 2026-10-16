@@ -7,7 +7,7 @@ from app.core.models import ServerModel
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
-    PterodactylGateway,
+    PterodactylPowerGateway,
     RuntimeStateStoreProtocol,
 )
 from app.services.announcement_service import AnnouncementService
@@ -21,7 +21,7 @@ class CountdownCoordinatorService:
   def __init__(
       self,
       repository: ConfigRepositoryProtocol,
-      ptero: PterodactylGateway,
+      ptero: PterodactylPowerGateway,
       countdown: CountdownManagerProtocol,
       announcements: AnnouncementService,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
