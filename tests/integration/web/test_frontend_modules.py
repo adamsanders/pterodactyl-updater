@@ -127,6 +127,15 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     self.assertIn("export function reindexServerCards", drag_drop_content)
     self.assertIn("LABEL", drag_drop_content)
     self.assertIn("button, label, input, select, textarea, a", drag_drop_content)
+    self.assertIn(".server-drag-handle", drag_drop_content)
+    self.assertIn("isHandleGrabbed", drag_drop_content)
+
+  def test_server_card_template_includes_visible_drag_anchor(self):
+    server_card_tpl = (self.templates_dir / "components" / "_server_card.html").read_text(encoding="utf-8")
+    self.assertIn("server-drag-handle", server_card_tpl)
+    self.assertIn("cursor-grab", server_card_tpl)
+    self.assertIn("active:cursor-grabbing", server_card_tpl)
+    self.assertIn("Drag to reorder server", server_card_tpl)
 
   def test_dashboard_js_readystatus_guard_and_reindex_export(self):
     dashboard_js = (self.js_dir / "dashboard.js").read_text(encoding="utf-8")

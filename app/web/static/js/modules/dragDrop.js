@@ -56,8 +56,29 @@ export function initServerDragAndDrop(containerSelector = '#main-form > div', ca
 
   cards.forEach(card => {
     if (!card) return;
-    card.setAttribute('draggable', 'true');
     card.classList.add('transition-transform');
+
+    const handle = card.querySelector('.server-drag-handle');
+    if (handle) {
+      handle.addEventListener('mouseenter', () => {
+        card.setAttribute('draggable', 'true');
+      });
+
+      handle.addEventListener('mouseleave', () => {
+        if (!isDragging && !isHandleGrabbed) {
+          card.removeAttribute('draggable');
+        }
+      });
+
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        isHandleGrabbed = true;
+        card.setAttribute('draggable', 'true');
+      });
+    } else {
+      // Fallback if no dedicated handle exists
+      card.setAttribute('draggable', 'true');
+    }
 
     card.addEventListener('dragstart', (e) => {
       // Don't drag if user is typing in an input, interacting with a slider, label, button, or link
@@ -66,12 +87,27 @@ export function initServerDragAndDrop(containerSelector = '#main-form > div', ca
         e.target.closest('button, label, input, select, textarea, a')
       ) {
         e.preventDefault();
+        card.removeAttribute('draggable');
         return;
       }
+
+      // If a drag handle anchor exists, only allow reordering drags initiated from the handle
+      const fromHandle = handle && (e.target === handle || handle.contains(e.target));
+      if (handle && !isHandleGrabbed && !fromHandle) {
+        card.removeAttribute('draggable');
+        return;
+      }
+
+      isDragging = true;
       draggedCard = card;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', '');
-      card.classList.add('opacity-40', 'border-indigo-500/60', 'scale-[0.99]');
+
+      setTimeout(() => {
+        if (draggedCard === card) {
+          card.classList.add('opacity-40', 'border-indigo-500/60', 'scale-[0.99]');
+        }
+      }, 0);
     });
 
     card.addEventListener('dragover', (e) => {
@@ -90,9 +126,23 @@ export function initServerDragAndDrop(containerSelector = '#main-form > div', ca
 
     card.addEventListener('dragend', () => {
       card.classList.remove('opacity-40', 'border-indigo-500/60', 'scale-[0.99]');
+      card.removeAttribute('draggable');
+      isDragging = false;
+      isHandleGrabbed = false;
       draggedCard = null;
       reindexServerCards(container);
     });
+  });
+
+  window.addEventListener('pointerup', () => {
+    isHandleGrabbed = false;
+    if (!isDragging) {
+      cards.forEach(c => {
+        if (c && c.querySelector('.server-drag-handle') && c.getAttribute('draggable') === 'true') {
+          c.removeAttribute('draggable');
+        }
+      });
+    }
   });
 }
 
