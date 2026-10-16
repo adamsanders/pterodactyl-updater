@@ -1,7 +1,12 @@
 from datetime import datetime
 import logging
 from typing import List, Optional, Union
-from app.core.exceptions import SimulationError
+from app.core.exceptions import (
+    ConfigurationError,
+    PterodactylApiError,
+    ServerNotFoundError,
+    SimulationError,
+)
 from app.core.models import (
     OperationResult,
     ServerModel,
@@ -285,4 +290,110 @@ class ServerService:
     """Invalidates power cache and executes immediate fleet update check."""
     self.ptero.invalidate_power_cache()
     if self.orchestrator:
-      await self.orchestrator.run_update_check()
+      await self.orchestrator.run_update_check()
+
+  async def lookup_server_name(self, server_id: str) -> str:
+    """Looks up server name from Pterodactyl Panel for a given server ID without saving."""
+    sid = server_id.strip()
+    if not sid:
+      raise ConfigurationError("Server ID cannot be empty.")
+    cfg = self.repo.load()
+    if not cfg.panel_url or not cfg.api_key:
+      raise ConfigurationError(
+          "Pterodactyl Panel URL and API Key must be configured first."
+      )
+    res = await self.ptero.get_server_name(
+        cfg.panel_url, cfg.api_key, sid, raise_on_error=True
+    )
+    return res.name or ""
+
+  async def sync_server_name(
+      self, identifier: Union[str, int], server_id_override: Optional[str] = None
+  ) -> str:
+    """Fetches latest server name from Pterodactyl and persists it to repository configuration."""
+    cfg = self.repo.load()
+    if not cfg.panel_url or not cfg.api_key:
+      raise ConfigurationError(
+          "Pterodactyl Panel URL and API Key must be configured first."
+      )
+
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
+      raise ServerNotFoundError(str(identifier))
+
+    sid = (server_id_override or cfg.servers[idx].server_id).strip()
+    if not sid:
+      raise ConfigurationError("Server ID cannot be empty.")
+
+    res = await self.ptero.get_server_name(
+        cfg.panel_url, cfg.api_key, sid, raise_on_error=True
+    )
+    if not res.name:
+      raise PterodactylApiError(
+          "Server name could not be resolved from panel.", server_id=sid
+      )
+
+    cfg.servers[idx].name = res.name
+    if server_id_override:
+      cfg.servers[idx].server_id = sid
+    self.repo.save(cfg)
+    return res.name
+
+  def update_server_toggle(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> None:
+    """Toggles and immediately persists a single boolean setting on a server."""
+    allowed_fields = {
+        "auto_restart",
+        "discord_alerts",
+        "warn_ingame_countdown",
+        "warn_discord_countdown",
+    }
+    if field not in allowed_fields:
+      raise ConfigurationError(
+          f"Invalid toggle field '{field}'. Allowed fields: {allowed_fields}"
+      )
+
+    cfg = self.repo.load()
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
+      raise ServerNotFoundError(str(identifier))
+
+    setattr(cfg.servers[idx], field, bool(value))
+    self.repo.save(cfg)
+
+  async def save_single_server(
+      self, identifier: Union[str, int], data: dict
+  ) -> ServerModel:
+    """Persists text configuration changes for a specific server card."""
+    cfg = self.repo.load()
+    idx = self.find_server_index(cfg.servers, identifier)
+    if idx is None:
+      raise ServerNotFoundError(str(identifier))
+
+    srv = cfg.servers[idx]
+    if "server_id" in data:
+      srv.server_id = str(data["server_id"]).strip()
+    if "app_id" in data:
+      srv.app_id = str(data["app_id"]).strip()
+    if "manifest_path" in data:
+      srv.manifest_path = str(data["manifest_path"]).strip()
+
+    name_input = str(data.get("name", "")).strip()
+    if name_input and name_input != "New Server":
+      srv.name = name_input
+    elif srv.server_id and cfg.panel_url and cfg.api_key:
+      try:
+        res = await self.ptero.get_server_name(
+            cfg.panel_url, cfg.api_key, srv.server_id
+        )
+        if res.name:
+          srv.name = res.name
+      except Exception:
+        if name_input:
+          srv.name = name_input
+    elif name_input:
+      srv.name = name_input
+
+    self.repo.save(cfg)
+    return srv

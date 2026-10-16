@@ -26,9 +26,10 @@ class SettingsFormData:
           return form.get(f"{prefix}_{sid}") == "true"
         return form.get(f"{prefix}_{idx}") == "true"
 
+      srv_name = get_field("srv_name", srv.name) or srv.name
       servers.append(
           ServerModel(
-              name=srv.name,
+              name=srv_name,
               server_id=get_field("srv_id", srv.server_id),
               app_id=get_field("srv_appid", srv.app_id),
               manifest_path=get_field("srv_manifest", srv.manifest_path),

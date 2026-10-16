@@ -134,6 +134,59 @@ async def clear_preview(
   return JSONResponse({"status": "ok"})
 
 
+@router.get("/api/servers/lookup-name")
+async def lookup_server_name(
+    server_id: str = "",
+    service: ServerService = Depends(get_service),
+):
+  name = await service.lookup_server_name(server_id)
+  return JSONResponse({"status": "ok", "name": name})
+
+
+@router.post("/api/servers/{server_id}/sync-name")
+async def sync_server_name(
+    server_id: str,
+    request: Request,
+    service: ServerService = Depends(get_service),
+):
+  sid_override = None
+  try:
+    body = await request.json()
+    if isinstance(body, dict):
+      sid_override = body.get("server_id")
+  except Exception:
+    pass
+
+  name = await service.sync_server_name(
+      server_id, server_id_override=sid_override
+  )
+  return JSONResponse({"status": "ok", "name": name})
+
+
+@router.post("/api/servers/{server_id}/toggle")
+async def toggle_server_setting(
+    server_id: str,
+    request: Request,
+    service: ServerService = Depends(get_service),
+):
+  body = await request.json()
+  field = body.get("field", "")
+  val = bool(body.get("value", False))
+  service.update_server_toggle(server_id, field, val)
+  return JSONResponse({"status": "ok", "field": field, "value": val})
+
+
+@router.post("/api/servers/{server_id}/save")
+async def save_single_server_route(
+    server_id: str,
+    request: Request,
+    service: ServerService = Depends(get_service),
+):
+  body = await request.json()
+  updated = await service.save_single_server(server_id, body)
+  return JSONResponse({"status": "ok", "server": updated.model_dump()})
+
+
 @router.post("/api/servers/{server_id}/power/{action}")
 async def server_power_action(
     server_id: str,

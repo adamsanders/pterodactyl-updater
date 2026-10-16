@@ -173,8 +173,26 @@ class UpdateOrchestrator:
     ptero_name, _ = await self.ptero.get_server_name(
         panel_url, api_key, server.server_id
     )
-    if ptero_name:
+    if ptero_name and server.name != ptero_name:
+      logger.info(
+          f"[{server.name}] Synchronized name from Pterodactyl: '{ptero_name}'"
+      )
       server.name = ptero_name
+      cfg_disk = self.repo.load()
+      match_idx = next(
+          (
+              i
+              for i, s in enumerate(cfg_disk.servers)
+              if s.server_id == server.server_id
+          ),
+          None,
+      )
+      if (
+          match_idx is not None
+          and cfg_disk.servers[match_idx].name != ptero_name
+      ):
+        cfg_disk.servers[match_idx].name = ptero_name
+        self.repo.save(cfg_disk)
 
     # 2. Check power state
     power_state = await self.ptero.get_power_state(

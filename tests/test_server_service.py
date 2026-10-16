@@ -341,6 +341,119 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     import app.web.routes as routes_mod
     self.assertNotIn("UpdateOrchestrator", vars(routes_mod))
 
+  async def test_lookup_server_name_success(self):
+    from app.core.models import ServerNameResult
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="test-key")
+    self.repo.load.return_value = cfg
+    self.ptero.get_server_name.return_value = ServerNameResult("Satisfactory Server", None)
+
+    name = await self.service.lookup_server_name("srv-sat")
+    self.assertEqual(name, "Satisfactory Server")
+    self.ptero.get_server_name.assert_called_once_with(
+        "http://panel.test", "test-key", "srv-sat", raise_on_error=True
+    )
+
+  async def test_lookup_server_name_empty_server_id_raises_configuration_error(self):
+    from app.core.exceptions import ConfigurationError
+    with self.assertRaises(ConfigurationError):
+      await self.service.lookup_server_name("   ")
+
+  async def test_lookup_server_name_unconfigured_panel_raises_configuration_error(self):
+    from app.core.exceptions import ConfigurationError
+    self.repo.load.return_value = AppConfigModel(panel_url="", api_key="")
+    with self.assertRaises(ConfigurationError):
+      await self.service.lookup_server_name("srv-1")
+
+  async def test_sync_server_name_persists_to_repository(self):
+    from app.core.models import ServerNameResult
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="test-key",
+        servers=[ServerModel(name="New Server", server_id="srv-rust")],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_server_name.return_value = ServerNameResult("Rust Official", None)
+
+    synced_name = await self.service.sync_server_name("srv-rust")
+    self.assertEqual(synced_name, "Rust Official")
+    self.repo.save.assert_called_once()
+    saved_cfg = self.repo.save.call_args[0][0]
+    self.assertEqual(saved_cfg.servers[0].name, "Rust Official")
+
+  async def test_sync_server_name_with_id_override(self):
+    from app.core.models import ServerNameResult
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="test-key",
+        servers=[ServerModel(name="New Server", server_id="")],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_server_name.return_value = ServerNameResult("Enshrouded World", None)
+
+    synced_name = await self.service.sync_server_name(0, server_id_override="srv-enshrouded")
+    self.assertEqual(synced_name, "Enshrouded World")
+    saved_cfg = self.repo.save.call_args[0][0]
+    self.assertEqual(saved_cfg.servers[0].name, "Enshrouded World")
+    self.assertEqual(saved_cfg.servers[0].server_id, "srv-enshrouded")
+
+  async def test_sync_server_name_not_found_raises(self):
+    from app.core.exceptions import ServerNotFoundError
+    self.repo.load.return_value = AppConfigModel(panel_url="http://p", api_key="k", servers=[])
+    with self.assertRaises(ServerNotFoundError):
+      await self.service.sync_server_name("nonexistent")
+
+  def test_update_server_toggle_persists(self):
+    cfg = AppConfigModel(
+        servers=[ServerModel(name="Srv1", server_id="srv-1", auto_restart=False)]
+    )
+    self.repo.load.return_value = cfg
+    self.service.update_server_toggle("srv-1", "auto_restart", True)
+    self.repo.save.assert_called_once()
+    saved = self.repo.save.call_args[0][0]
+    self.assertTrue(saved.servers[0].auto_restart)
+
+  def test_update_server_toggle_invalid_field_raises(self):
+    from app.core.exceptions import ConfigurationError
+    cfg = AppConfigModel(servers=[ServerModel(name="Srv1", server_id="srv-1")])
+    self.repo.load.return_value = cfg
+    with self.assertRaises(ConfigurationError):
+      self.service.update_server_toggle("srv-1", "invalid_field", True)
+
+  async def test_save_single_server_persists_text_fields(self):
+    cfg = AppConfigModel(
+        servers=[ServerModel(name="Old Name", server_id="srv-1", app_id="111", manifest_path="old.acf")]
+    )
+    self.repo.load.return_value = cfg
+    updated = await self.service.save_single_server("srv-1", {
+        "name": "Updated Name",
+        "server_id": "srv-1-new",
+        "app_id": "222",
+        "manifest_path": "new.acf",
+    })
+    self.repo.save.assert_called_once()
+    self.assertEqual(updated.name, "Updated Name")
+    self.assertEqual(updated.server_id, "srv-1-new")
+    self.assertEqual(updated.app_id, "222")
+    self.assertEqual(updated.manifest_path, "new.acf")
+
+  async def test_save_single_server_auto_syncs_new_server_name(self):
+    from app.core.models import ServerNameResult
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="key",
+        servers=[ServerModel(name="New Server", server_id="")]
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_server_name.return_value = ServerNameResult("Ptero Detected Name", None)
+
+    updated = await self.service.save_single_server(0, {
+        "name": "New Server",
+        "server_id": "srv-new-hash",
+        "app_id": "896660",
+        "manifest_path": "steamapps/appmanifest_896660.acf",
+    })
+    self.assertEqual(updated.name, "Ptero Detected Name")
+
 
 class TestServerIdRouteIntegration(unittest.TestCase):
 
@@ -505,6 +618,38 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.assertEqual(res.status_code, 200)
     self.assertEqual(res.json(), {"status": "ok", "test_mode": True})
     self.mock_service.toggle_test_mode.assert_called_once_with(True)
+
+  def test_lookup_name_route(self):
+    self.mock_service.lookup_server_name = AsyncMock(return_value="Terraria Server")
+    res = self.client.get("/api/servers/lookup-name?server_id=srv-terra")
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok", "name": "Terraria Server"})
+    self.mock_service.lookup_server_name.assert_called_once_with("srv-terra")
+
+  def test_sync_name_route(self):
+    self.mock_service.sync_server_name = AsyncMock(return_value="Synced Server Name")
+    res = self.client.post("/api/servers/srv-beta/sync-name", json={"server_id": "srv-beta"})
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok", "name": "Synced Server Name"})
+    self.mock_service.sync_server_name.assert_called_once_with("srv-beta", server_id_override="srv-beta")
+
+  def test_toggle_server_setting_route(self):
+    self.mock_service.update_server_toggle = MagicMock()
+    res = self.client.post("/api/servers/srv-beta/toggle", json={"field": "auto_restart", "value": True})
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok", "field": "auto_restart", "value": True})
+    self.mock_service.update_server_toggle.assert_called_once_with("srv-beta", "auto_restart", True)
+
+  def test_save_single_server_route(self):
+    saved_model = ServerModel(name="Saved Server", server_id="srv-beta", app_id="123", manifest_path="test.acf")
+    self.mock_service.save_single_server = AsyncMock(return_value=saved_model)
+    res = self.client.post(
+        "/api/servers/srv-beta/save",
+        json={"name": "Saved Server", "server_id": "srv-beta", "app_id": "123", "manifest_path": "test.acf"}
+    )
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json().get("status"), "ok")
+    self.assertEqual(res.json().get("server", {}).get("name"), "Saved Server")
 
 
 if __name__ == "__main__":

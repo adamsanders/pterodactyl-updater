@@ -316,6 +316,221 @@
       }
     }
 
+    const serverBaselines = {};
+
+    function initServerBaselines() {
+      document.querySelectorAll('[id^="srv_title_"]').forEach(el => {
+        const idx = el.id.replace('srv_title_', '');
+        const nameInput = document.getElementById('srv_name_input_' + idx);
+        const idInput = document.getElementById('srv_id_input_' + idx);
+        const appidInput = document.getElementById('srv_appid_input_' + idx);
+        const manifestInput = document.getElementById('srv_manifest_input_' + idx);
+
+        serverBaselines[idx] = {
+          name: nameInput ? nameInput.value : '',
+          server_id: idInput ? idInput.value : '',
+          app_id: appidInput ? appidInput.value : '',
+          manifest_path: manifestInput ? manifestInput.value : ''
+        };
+      });
+    }
+
+    function isServerDirty(idx) {
+      const base = serverBaselines[idx];
+      if (!base) return false;
+      const nameInput = document.getElementById('srv_name_input_' + idx);
+      const idInput = document.getElementById('srv_id_input_' + idx);
+      const appidInput = document.getElementById('srv_appid_input_' + idx);
+      const manifestInput = document.getElementById('srv_manifest_input_' + idx);
+
+      return (
+        (nameInput && nameInput.value !== base.name) ||
+        (idInput && idInput.value !== base.server_id) ||
+        (appidInput && appidInput.value !== base.app_id) ||
+        (manifestInput && manifestInput.value !== base.manifest_path)
+      );
+    }
+
+    function checkServerDirty(idx) {
+      const saveBtn = document.getElementById('srv_save_btn_' + idx);
+      if (!saveBtn) return;
+      if (isServerDirty(idx)) {
+        saveBtn.classList.remove('hidden');
+        saveBtn.classList.add('inline-flex');
+      } else {
+        saveBtn.classList.add('hidden');
+        saveBtn.classList.remove('inline-flex');
+      }
+    }
+
+    function onServerTextInput(idx) {
+      checkServerDirty(idx);
+    }
+
+    let serverIdDebounceTimers = {};
+
+    function onServerIdInput(identifier, idx) {
+      checkServerDirty(idx);
+      if (serverIdDebounceTimers[idx]) {
+        clearTimeout(serverIdDebounceTimers[idx]);
+      }
+      serverIdDebounceTimers[idx] = setTimeout(() => {
+        autoSyncServerName(identifier, idx);
+      }, 700);
+    }
+
+    function onServerIdChange(identifier, idx) {
+      checkServerDirty(idx);
+      autoSyncServerName(identifier, idx);
+    }
+
+    async function autoSyncServerName(identifier, idx) {
+      const idInput = document.getElementById('srv_id_input_' + idx);
+      const srvId = idInput?.value.trim();
+      if (!srvId || srvId.length < 2) return;
+      const nameInput = document.getElementById('srv_name_input_' + idx);
+      if (!nameInput) return;
+
+      const curName = nameInput.value.trim();
+      if (curName !== 'New Server' && curName !== '') return;
+
+      try {
+        const res = await fetch(`/api/servers/lookup-name?server_id=${encodeURIComponent(srvId)}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'ok' && data.name) {
+          nameInput.value = data.name;
+          const titleEl = document.getElementById('srv_title_' + idx);
+          if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${data.name}`;
+          checkServerDirty(idx);
+          showToast(`Server name detected from Pterodactyl: ${data.name}`, 'info');
+        }
+      } catch (err) {
+        // Quiet fail on lookup during typing
+      }
+    }
+
+    async function refreshServerName(identifier, idx) {
+      const idInput = document.getElementById('srv_id_input_' + idx);
+      const srvId = idInput?.value.trim() || identifier;
+      if (!srvId) {
+        showToast('Please enter a Server ID (Hash) first.', 'error');
+        return;
+      }
+
+      const icon = document.getElementById('refresh_icon_svg_' + idx);
+      if (icon) icon.classList.add('animate-spin');
+
+      try {
+        const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/sync-name`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ server_id: srvId })
+        });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'Failed to sync server name');
+        }
+
+        const nameInput = document.getElementById('srv_name_input_' + idx);
+        if (nameInput) nameInput.value = data.name;
+        const titleEl = document.getElementById('srv_title_' + idx);
+        if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${data.name}`;
+
+        if (!serverBaselines[idx]) serverBaselines[idx] = {};
+        serverBaselines[idx].name = data.name;
+        serverBaselines[idx].server_id = srvId;
+        checkServerDirty(idx);
+        showToast(`Server name refreshed and saved: ${data.name}`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast(`Failed to sync name: ${err.message}`, 'error');
+      } finally {
+        if (icon) icon.classList.remove('animate-spin');
+      }
+    }
+
+    async function toggleServerSlider(identifier, idx, field, el) {
+      const isChecked = el.checked;
+      const labelMap = {
+        'auto_restart': 'Auto-Restart',
+        'discord_alerts': 'Discord Alerts',
+        'warn_ingame_countdown': 'In-Game Countdown Warnings',
+        'warn_discord_countdown': 'Discord Countdown Warnings'
+      };
+      const label = labelMap[field] || field;
+
+      try {
+        const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: field, value: isChecked })
+        });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'Failed to update setting');
+        }
+        showToast(`${label} ${isChecked ? 'enabled' : 'disabled'} for Server #${parseInt(idx) + 1}`, 'success');
+      } catch (err) {
+        console.error(err);
+        el.checked = !isChecked; // Revert checkbox
+        showToast(`Failed to update ${label}: ${err.message}`, 'error');
+      }
+    }
+
+    async function saveSingleServer(identifier, idx) {
+      const saveBtn = document.getElementById('srv_save_btn_' + idx);
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<svg class="animate-spin w-3.5 h-3.5 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...';
+      }
+
+      const nameVal = document.getElementById('srv_name_input_' + idx)?.value || '';
+      const idVal = document.getElementById('srv_id_input_' + idx)?.value || '';
+      const appidVal = document.getElementById('srv_appid_input_' + idx)?.value || '';
+      const manifestVal = document.getElementById('srv_manifest_input_' + idx)?.value || '';
+
+      try {
+        const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nameVal,
+            server_id: idVal,
+            app_id: appidVal,
+            manifest_path: manifestVal
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'ok') {
+          throw new Error(data.message || 'Save failed');
+        }
+
+        const savedSrv = data.server;
+        serverBaselines[idx] = {
+          name: savedSrv.name,
+          server_id: savedSrv.server_id,
+          app_id: savedSrv.app_id,
+          manifest_path: savedSrv.manifest_path
+        };
+
+        const nameInput = document.getElementById('srv_name_input_' + idx);
+        if (nameInput) nameInput.value = savedSrv.name;
+        const titleEl = document.getElementById('srv_title_' + idx);
+        if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${savedSrv.name}`;
+
+        checkServerDirty(idx);
+        showToast(`Server #${parseInt(idx) + 1} (${savedSrv.name}) saved successfully!`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast(`Failed to save server: ${err.message}`, 'error');
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Save Server';
+        }
+      }
+    }
+
     function toggleEditName(idx) {
       const input = document.getElementById('srv_name_input_' + idx);
       const saveBtn = document.getElementById('save_name_btn_' + idx);
@@ -338,6 +553,10 @@
         editBtn.innerText = 'Edit';
         editBtn.classList.remove('text-gray-400', 'hover:text-gray-300');
         editBtn.classList.add('text-indigo-400', 'hover:text-indigo-300');
+        if (serverBaselines[idx]) {
+          input.value = serverBaselines[idx].name;
+          checkServerDirty(idx);
+        }
       }
     }
 
@@ -587,7 +806,7 @@
 
             const titleEl = document.getElementById('srv_title_' + idx);
             const inputEl = document.getElementById('srv_name_input_' + idx);
-            if (titleEl && srv.name) {
+            if (titleEl && srv.name && !isServerDirty(idx)) {
               titleEl.innerText = 'Server #' + (idx + 1) + ': ' + srv.name;
               if (inputEl && inputEl.readOnly) {
                 inputEl.value = srv.name;
@@ -673,6 +892,7 @@
       makeDraggable('test-simulator-window', 'test-simulator-header');
       makeDraggable('live-console-window', 'live-console-header');
       pollLiveStatus();
+      initServerBaselines();
       startStatusPolling(STEADY_POLL_INTERVAL); // <-- FIX: was ACTIVE_POLL_INTERVAL
 
       const urlParams = new URLSearchParams(window.location.search);
@@ -770,6 +990,14 @@
           <div class="flex justify-between items-center mb-2">
             <h3 id="srv_title_{{ idx }}" class="font-bold text-indigo-300">Server #{{ idx + 1 }}: {{ srv.name }}</h3>
             <div class="flex items-center gap-3">
+              <button type="button" 
+                      id="srv_save_btn_{{ idx }}" 
+                      onclick="saveSingleServer('{{ srv.server_id or idx }}', {{ idx }})" 
+                      class="hidden bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded text-xs font-semibold shadow-sm transition items-center gap-1 cursor-pointer" 
+                      title="Save changes for this server only">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                Save Server
+              </button>
               <button type="submit" form="main-form" formaction="/test-webhook/{{ srv.server_id or idx }}" class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold">Test Webhook</button>
               <button type="submit" form="main-form" formaction="/delete-server/{{ srv.server_id or idx }}" class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
             </div>
@@ -858,46 +1086,55 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <div class="flex justify-between items-center mb-1">
-                <label class="block text-xs text-gray-400 uppercase">Server Name (Synced from Pterodactyl)</label>
+                <div class="flex items-center gap-1.5">
+                  <label class="block text-xs text-gray-400 uppercase">Server Name (Synced from Pterodactyl)</label>
+                  <button type="button" 
+                          id="refresh_name_btn_{{ idx }}" 
+                          onclick="refreshServerName('{{ srv.server_id or idx }}', {{ idx }})" 
+                          class="text-gray-400 hover:text-indigo-400 transition cursor-pointer p-0.5 rounded" 
+                          title="Fetch latest server name from Pterodactyl and save">
+                    <svg id="refresh_icon_svg_{{ idx }}" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  </button>
+                </div>
                 <button type="button" onclick="toggleEditName('{{ idx }}')" id="edit_btn_{{ idx }}" class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition">Edit</button>
               </div>
               <div class="flex gap-2">
-                <input id="srv_name_input_{{ idx }}" name="srv_name_{{ srv.server_id or idx }}" type="text" value="{{ srv.name }}" readonly class="w-full bg-gray-950/60 border border-gray-800 text-gray-400 rounded p-1.5 text-sm cursor-not-allowed transition">
+                <input id="srv_name_input_{{ idx }}" name="srv_name_{{ srv.server_id or idx }}" type="text" value="{{ srv.name }}" readonly oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950/60 border border-gray-800 text-gray-400 rounded p-1.5 text-sm cursor-not-allowed transition">
                 <button type="submit" id="save_name_btn_{{ idx }}" formaction="/rename-server/{{ srv.server_id or idx }}" class="hidden bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-semibold whitespace-nowrap transition">Save</button>
               </div>
             </div>
             <div>
               <label class="block text-xs text-gray-400 uppercase mb-1">Server ID (Hash)</label>
-              <input name="srv_id_{{ idx }}" type="text" value="{{ srv.server_id }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
+              <input id="srv_id_input_{{ idx }}" name="srv_id_{{ idx }}" type="text" value="{{ srv.server_id }}" required oninput="onServerIdInput('{{ srv.server_id or idx }}', {{ idx }})" onchange="onServerIdChange('{{ srv.server_id or idx }}', {{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
             </div>
             <div>
               <label class="block text-xs text-gray-400 uppercase mb-1">Steam App ID</label>
-              <input name="srv_appid_{{ idx }}" type="text" value="{{ srv.app_id }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
+              <input id="srv_appid_input_{{ idx }}" name="srv_appid_{{ idx }}" type="text" value="{{ srv.app_id }}" required oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
             </div>
             <div>
               <label class="block text-xs text-gray-400 uppercase mb-1">Manifest Path</label>
-              <input name="srv_manifest_{{ idx }}" type="text" value="{{ srv.manifest_path }}" required class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
+              <input id="srv_manifest_input_{{ idx }}" name="srv_manifest_{{ idx }}" type="text" value="{{ srv.manifest_path }}" required oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
             </div>
           </div>
 
           <div class="mt-4 pt-3 border-t border-gray-700/60 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <label class="inline-flex items-center cursor-pointer">
-              <input name="srv_autorestart_{{ idx }}" type="checkbox" value="true" {% if srv.auto_restart %}checked{% endif %} class="sr-only peer">
+              <input id="srv_autorestart_input_{{ idx }}" name="srv_autorestart_{{ idx }}" type="checkbox" value="true" {% if srv.auto_restart %}checked{% endif %} onchange="toggleServerSlider('{{ srv.server_id or idx }}', {{ idx }}, 'auto_restart', this)" class="sr-only peer">
               <div class="w-8 h-4 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600 relative"></div>
               <span class="ml-2 text-xs font-medium text-gray-300">Auto-Restart</span>
             </label>
             <label class="inline-flex items-center cursor-pointer">
-              <input name="srv_discord_{{ idx }}" type="checkbox" value="true" {% if srv.discord_alerts %}checked{% endif %} class="sr-only peer">
+              <input id="srv_discord_input_{{ idx }}" name="srv_discord_{{ idx }}" type="checkbox" value="true" {% if srv.discord_alerts %}checked{% endif %} onchange="toggleServerSlider('{{ srv.server_id or idx }}', {{ idx }}, 'discord_alerts', this)" class="sr-only peer">
               <div class="w-8 h-4 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600 relative"></div>
               <span class="ml-2 text-xs font-medium text-gray-300">Discord Alerts</span>
             </label>
             <label class="inline-flex items-center cursor-pointer">
-              <input name="srv_warningame_{{ idx }}" type="checkbox" value="true" {% if srv.warn_ingame_countdown %}checked{% endif %} class="sr-only peer">
+              <input id="srv_warningame_input_{{ idx }}" name="srv_warningame_{{ idx }}" type="checkbox" value="true" {% if srv.warn_ingame_countdown %}checked{% endif %} onchange="toggleServerSlider('{{ srv.server_id or idx }}', {{ idx }}, 'warn_ingame_countdown', this)" class="sr-only peer">
               <div class="w-8 h-4 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-600 relative"></div>
               <span class="ml-2 text-xs font-medium text-gray-300">In-Game 10/5/1m Warns</span>
             </label>
             <label class="inline-flex items-center cursor-pointer">
-              <input name="srv_warndiscord_{{ idx }}" type="checkbox" value="true" {% if srv.warn_discord_countdown %}checked{% endif %} class="sr-only peer">
+              <input id="srv_warndiscord_input_{{ idx }}" name="srv_warndiscord_{{ idx }}" type="checkbox" value="true" {% if srv.warn_discord_countdown %}checked{% endif %} onchange="toggleServerSlider('{{ srv.server_id or idx }}', {{ idx }}, 'warn_discord_countdown', this)" class="sr-only peer">
               <div class="w-8 h-4 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-600 relative"></div>
               <span class="ml-2 text-xs font-medium text-gray-300">Discord 10/5/1m Warns</span>
             </label>
