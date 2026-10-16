@@ -26,6 +26,25 @@ class SettingsFormData:
           return form.get(f"{prefix}_{sid}") == "true"
         return form.get(f"{prefix}_{idx}") == "true"
 
+      def get_int(prefix: str, default: int = 0) -> int:
+        raw_val = None
+        if sid and f"{prefix}_{sid}" in form:
+          raw_val = form.get(f"{prefix}_{sid}")
+        elif f"{prefix}_{idx}" in form:
+          raw_val = form.get(f"{prefix}_{idx}")
+        if raw_val is not None and str(raw_val).strip() != "":
+          try:
+            return int(str(raw_val).strip())
+          except (ValueError, TypeError):
+            return default
+        return default
+
+      port_offset = srv.query_port_offset
+      for pfx in ("srv_port_offset", "srv_query_port_offset", "srv_queryportoffset", "query_port_offset"):
+        if (sid and f"{pfx}_{sid}" in form) or (f"{pfx}_{idx}" in form):
+          port_offset = get_int(pfx, 0)
+          break
+
       srv_name = get_field("srv_name", srv.name) or srv.name
       servers.append(
           ServerModel(
@@ -37,6 +56,7 @@ class SettingsFormData:
               discord_alerts=get_bool("srv_discord"),
               warn_ingame_countdown=get_bool("srv_warningame"),
               warn_discord_countdown=get_bool("srv_warndiscord"),
+              query_port_offset=port_offset,
               current_build=srv.current_build,
               latest_build=srv.latest_build,
               last_status=srv.last_status,

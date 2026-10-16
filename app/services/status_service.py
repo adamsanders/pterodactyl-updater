@@ -23,6 +23,9 @@ from app.services.updater import UpdateOrchestrator
 logger = logging.getLogger("updater.status_service")
 
 
+__all__ = ["StatusAggregationService", "resolve_query_port"]
+
+
 class StatusAggregationService:
   """Aggregates multi-server fleet telemetry, power states, countdowns, and webhooks."""
 
@@ -95,7 +98,9 @@ class StatusAggregationService:
       )
 
     query_port = (
-        resolve_query_port(srv.app_id, game_port) if game_port else None
+        resolve_query_port(srv.app_id, game_port, srv.query_port_offset)
+        if game_port
+        else None
     )
 
     player_count, max_players = None, None

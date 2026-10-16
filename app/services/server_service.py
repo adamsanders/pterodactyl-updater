@@ -381,6 +381,26 @@ class ServerService:
       srv.app_id = str(data["app_id"]).strip()
     if "manifest_path" in data:
       srv.manifest_path = str(data["manifest_path"]).strip()
+    found_offset = False
+    for key in ("query_port_offset", "port_offset", "srv_port_offset", "srv_query_port_offset"):
+      if key in data:
+        try:
+          srv.query_port_offset = int(data[key])
+        except (ValueError, TypeError):
+          srv.query_port_offset = 0
+        found_offset = True
+        break
+    if not found_offset:
+      for k, v in data.items():
+        if any(
+            k.startswith(pfx + "_")
+            for pfx in ("srv_port_offset", "srv_query_port_offset", "port_offset", "query_port_offset")
+        ):
+          try:
+            srv.query_port_offset = int(v)
+          except (ValueError, TypeError):
+            srv.query_port_offset = 0
+          break
 
     name_input = str(data.get("name", "")).strip()
     if name_input and name_input != "New Server":

@@ -7,7 +7,7 @@ from app.core.exceptions import (
     PterodactylApiError,
     ServerNotFoundError,
 )
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     from enum import StrEnum
@@ -189,9 +189,20 @@ class ServerModel(BaseModel):
   discord_alerts: bool = False
   warn_ingame_countdown: bool = False
   warn_discord_countdown: bool = False
+  query_port_offset: int = 0
   current_build: str = Field(default="Unknown", exclude=True)
   latest_build: str = Field(default="Unknown", exclude=True)
   last_status: str = Field(default="Idle", exclude=True)
+
+  @field_validator("query_port_offset", mode="before")
+  @classmethod
+  def parse_query_port_offset(cls, v: Any) -> int:
+    if v is None or v == "":
+      return 0
+    try:
+      return int(v)
+    except (ValueError, TypeError):
+      return 0
 
   @model_validator(mode="after")
   def default_manifest_from_appid(self) -> "ServerModel":

@@ -201,7 +201,11 @@ async def save_single_server_route(
     request: Request,
     service: ServerService = Depends(get_service),
 ):
-  body = await request.json()
+  try:
+    body = await request.json()
+  except Exception:
+    form = await request.form()
+    body = dict(form)
   updated = await service.save_single_server(server_id, body)
   return JSONResponse({"status": "ok", "server": updated.model_dump()})
 

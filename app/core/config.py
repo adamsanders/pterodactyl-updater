@@ -7,7 +7,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.13.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.14.0")
 
 # Steam redistributable / auxiliary tool App IDs that must never be treated as game servers
 IGNORED_STEAM_APPIDS: set[str] = {
@@ -196,6 +196,8 @@ def resolve_game_appid(appid: int | str) -> str:
   return SERVER_TO_GAME_APPID.get(s_id, s_id)
 
 # Games where the Steam A2S query port is typically offset from the game allocation port
+# Deprecation Warning: Hardcoded PORT_OFFSET_MAP is deprecated as of v1.14.0 and scheduled for removal in v2.0.0.
+# Query port offsets should now be configured per-server via ServerModel.query_port_offset.
 PORT_OFFSET_MAP: dict[int, int] = {
     896660: 1,   # Valheim (Game + 1)
     892970: 1,   # Valheim Dedicated
@@ -206,15 +208,41 @@ PORT_OFFSET_MAP: dict[int, int] = {
     294420: 1,   # 7 Days to Die (Game + 1)
     251570: 1,   # 7 Days to Die Dedicated
 }
+"""Deprecation Warning: PORT_OFFSET_MAP is deprecated as of v1.14.0 and scheduled for removal in v2.0.0.
+Query port offsets should now be configured per-server via ServerModel.query_port_offset.
+"""
 
-def resolve_query_port(app_id: int | str, game_port: int) -> int:
-    """Translates a game's connection/allocation port to its Steam A2S query port."""
-    if not game_port:
+def resolve_query_port(
+    app_id: int | str, game_port: int | str, query_port_offset: int | str = 0
+) -> int:
+    """Translates a game's connection/allocation port to its Steam A2S query port.
+
+    If query_port_offset is non-zero, it is applied directly to game_port.
+    If query_port_offset is 0, it falls back to PORT_OFFSET_MAP for backward compatibility.
+    Note: Fallback to PORT_OFFSET_MAP is deprecated since v1.14.0 and will be removed in v2.0.0.
+    """
+    try:
+        gport = int(str(game_port).strip())
+    except (ValueError, TypeError):
         return 0
+
+    if gport <= 0:
+        return 0
+
+    try:
+        offset_val = int(str(query_port_offset).strip())
+    except (ValueError, TypeError):
+        offset_val = 0
+
+    if offset_val != 0:
+        resolved = gport + offset_val
+        return resolved if 0 < resolved <= 65535 else 0
+
     try:
         aid = int(str(app_id).strip())
     except (ValueError, TypeError):
-        return game_port
+        return gport
 
     offset = PORT_OFFSET_MAP.get(aid, 0)
-    return game_port + offset
+    resolved = gport + offset
+    return resolved if 0 < resolved <= 65535 else 0

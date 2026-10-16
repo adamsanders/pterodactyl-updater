@@ -502,6 +502,48 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     with self.assertRaises(ValueError):
       PowerSignal.from_str(None)
 
+  def test_server_model_query_port_offset_defaults_and_custom(self):
+    srv_default = ServerModel()
+    self.assertEqual(srv_default.query_port_offset, 0)
+    dumped_default = srv_default.model_dump()
+    self.assertIn("query_port_offset", dumped_default)
+    self.assertEqual(dumped_default["query_port_offset"], 0)
+
+    srv_custom = ServerModel(name="Valheim Modded", server_id="srv_vmod", app_id="896660", query_port_offset=2)
+    self.assertEqual(srv_custom.query_port_offset, 2)
+    dumped_custom = srv_custom.model_dump()
+    self.assertEqual(dumped_custom["query_port_offset"], 2)
+
+    # Negative offset
+    srv_neg = ServerModel(name="Neg Offset Game", query_port_offset=-1)
+    self.assertEqual(srv_neg.query_port_offset, -1)
+
+    # Deserialization from JSON/dict
+    restored = ServerModel.model_validate({"name": "Restored", "query_port_offset": 5})
+    self.assertEqual(restored.query_port_offset, 5)
+
+    # Robustness against None, empty string, string integers, and invalid types
+    self.assertEqual(ServerModel(query_port_offset=None).query_port_offset, 0)
+    self.assertEqual(ServerModel(query_port_offset="").query_port_offset, 0)
+    self.assertEqual(ServerModel(query_port_offset="10").query_port_offset, 10)
+    self.assertEqual(ServerModel(query_port_offset="invalid").query_port_offset, 0)
+    self.assertEqual(ServerModel.model_validate({"query_port_offset": None}).query_port_offset, 0)
+    self.assertEqual(ServerModel.model_validate({"query_port_offset": ""}).query_port_offset, 0)
+
+  def test_settings_update_dto_preserves_query_port_offset(self):
+    from app.core.models import SettingsUpdateDTO
+    dto = SettingsUpdateDTO(
+        servers=[
+            ServerModel(name="Srv 1", query_port_offset=0),
+            ServerModel(name="Srv 2", query_port_offset=15),
+        ]
+    )
+    self.assertEqual(dto.servers[0].query_port_offset, 0)
+    self.assertEqual(dto.servers[1].query_port_offset, 15)
+    dumped = dto.model_dump()
+    self.assertEqual(dumped["servers"][0]["query_port_offset"], 0)
+    self.assertEqual(dumped["servers"][1]["query_port_offset"], 15)
+
 
 if __name__ == "__main__":
   unittest.main()

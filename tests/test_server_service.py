@@ -58,7 +58,7 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
         check_interval=5,
         discord_webhook="http://webhook",
         test_mode=True,
-        servers=[ServerModel(name="Srv1", server_id="id1")],
+        servers=[ServerModel(name="Srv1", server_id="id1", query_port_offset=8)],
     )
 
     self.service.save_settings(dto)
@@ -69,6 +69,7 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(saved_cfg.api_key, "new_key")
     self.assertEqual(saved_cfg.check_interval, 5)
     self.assertEqual(len(saved_cfg.servers), 1)
+    self.assertEqual(saved_cfg.servers[0].query_port_offset, 8)
 
   def test_add_server_with_dto(self):
     cfg = AppConfigModel(servers=[ServerModel(name="Existing", server_id="id1")])
@@ -193,6 +194,48 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertFalse(dto.servers[0].discord_alerts)
     self.assertTrue(dto.servers[0].warn_ingame_countdown)
     self.assertTrue(dto.servers[0].warn_discord_countdown)
+
+  async def test_form_data_parser_with_query_port_offset(self):
+    form = FormData({
+        "panel_url": "http://form.test",
+        "api_key": "ptlc_secret",
+        "srv_id_0": "srv0",
+        "srv_port_offset_0": "4",
+        "srv_id_alpha": "alpha",
+        "srv_port_offset_alpha": "12",
+    })
+    current_servers = [
+        ServerModel(name="Server 0", server_id="srv0"),
+        ServerModel(name="Server Alpha", server_id="alpha"),
+    ]
+    dto = await SettingsFormData.from_form(form, current_servers)
+    self.assertEqual(dto.servers[0].query_port_offset, 4)
+    self.assertEqual(dto.servers[1].query_port_offset, 12)
+
+  async def test_form_data_parser_clearing_query_port_offset_resets_to_zero(self):
+    form = FormData({
+        "panel_url": "http://form.test",
+        "api_key": "ptlc_secret",
+        "srv_id_0": "srv0",
+        "srv_port_offset_0": "",
+    })
+    current_servers = [
+        ServerModel(name="Server 0", server_id="srv0", query_port_offset=10),
+    ]
+    dto = await SettingsFormData.from_form(form, current_servers)
+    self.assertEqual(dto.servers[0].query_port_offset, 0)
+
+  async def test_form_data_parser_omitted_port_offset_preserves_existing_value(self):
+    form = FormData({
+        "panel_url": "http://form.test",
+        "api_key": "ptlc_secret",
+        "srv_id_0": "srv0",
+    })
+    current_servers = [
+        ServerModel(name="Server 0", server_id="srv0", query_port_offset=15),
+    ]
+    dto = await SettingsFormData.from_form(form, current_servers)
+    self.assertEqual(dto.servers[0].query_port_offset, 15)
 
   def test_find_server_index_by_server_id_and_legacy_index(self):
     servers = [
@@ -513,6 +556,48 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(updated.app_id, "222")
     self.assertEqual(updated.manifest_path, "new.acf")
 
+  async def test_save_single_server_persists_query_port_offset(self):
+    cfg = AppConfigModel(
+        servers=[ServerModel(name="Old Name", server_id="srv-1", query_port_offset=0)]
+    )
+    self.repo.load.return_value = cfg
+
+    # 1. Valid positive offset
+    updated = await self.service.save_single_server("srv-1", {
+        "query_port_offset": 10,
+    })
+    self.assertEqual(updated.query_port_offset, 10)
+
+    # 2. String integer offset
+    updated = await self.service.save_single_server("srv-1", {
+        "query_port_offset": "5",
+    })
+    self.assertEqual(updated.query_port_offset, 5)
+
+    # 3. Negative offset
+    updated = await self.service.save_single_server("srv-1", {
+        "query_port_offset": -2,
+    })
+    self.assertEqual(updated.query_port_offset, -2)
+
+    # 4. Fallback to 0 on non-numeric string
+    updated = await self.service.save_single_server("srv-1", {
+        "query_port_offset": "invalid",
+    })
+    self.assertEqual(updated.query_port_offset, 0)
+
+    # 5. Empty string resets to 0
+    updated = await self.service.save_single_server("srv-1", {
+        "query_port_offset": "",
+    })
+    self.assertEqual(updated.query_port_offset, 0)
+
+    # 6. Indexed form key support
+    updated = await self.service.save_single_server("srv-1", {
+        "srv_port_offset_0": "7",
+    })
+    self.assertEqual(updated.query_port_offset, 7)
+
   async def test_save_single_server_auto_syncs_new_server_name(self):
     from app.core.models import ServerNameResult
     cfg = AppConfigModel(
@@ -749,15 +834,16 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.mock_service.update_server_toggle.assert_called_once_with("srv-beta", "auto_restart", True)
 
   def test_save_single_server_route(self):
-    saved_model = ServerModel(name="Saved Server", server_id="srv-beta", app_id="123", manifest_path="test.acf")
+    saved_model = ServerModel(name="Saved Server", server_id="srv-beta", app_id="123", manifest_path="test.acf", query_port_offset=3)
     self.mock_service.save_single_server = AsyncMock(return_value=saved_model)
     res = self.client.post(
         "/api/servers/srv-beta/save",
-        json={"name": "Saved Server", "server_id": "srv-beta", "app_id": "123", "manifest_path": "test.acf"}
+        json={"name": "Saved Server", "server_id": "srv-beta", "app_id": "123", "manifest_path": "test.acf", "query_port_offset": 3}
     )
     self.assertEqual(res.status_code, 200)
     self.assertEqual(res.json().get("status"), "ok")
     self.assertEqual(res.json().get("server", {}).get("name"), "Saved Server")
+    self.assertEqual(res.json().get("server", {}).get("query_port_offset"), 3)
 
   def test_detect_details_route(self):
     self.mock_service.detect_server_details = AsyncMock(

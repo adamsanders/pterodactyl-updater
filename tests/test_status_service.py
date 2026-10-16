@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.core.config import APP_VERSION, COMMIT_CODE
+from app.core.config import APP_VERSION, COMMIT_CODE, PORT_OFFSET_MAP, resolve_query_port
 from app.core.models import AppConfigModel, ServerModel, WebhookPreview
 from app.services.status_service import StatusAggregationService
 
@@ -185,7 +185,149 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     snapshot = await self.service.get_status_snapshot()
     server_data = snapshot["servers"][0]
     self.assertEqual(server_data["power_state"], "offline")
-    self.assertEqual(server_data["power_state"], "offline")
+
+  async def test_status_service_respects_custom_query_port_offset(self):
+    srv = ServerModel(
+        name="Custom Offset Server",
+        server_id="srv_custom",
+        app_id="896660",
+        query_port_offset=5,
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.return_value = "running"
+    self.ptero.get_server_allocation.return_value = ("192.168.1.50", 2456)
+    self.countdown.is_running.return_value = False
+    self.countdown.get_target.return_value = 0.0
+    self.countdown.get_remaining.return_value = 0
+    self.a2s.get_player_count.return_value = (2, 8)
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertEqual(server_data["port"], 2456)
+    # Custom offset 5 overrides default Valheim offset 1 -> 2456 + 5 = 2461
+    self.assertEqual(server_data["query_port"], 2461)
+    self.a2s.get_player_count.assert_called_with("1.2.3.4", 2461)
+
+  async def test_status_service_falls_back_to_port_offset_map_when_offset_is_zero(self):
+    srv = ServerModel(
+        name="Valheim Zero Offset",
+        server_id="srv_valheim_zero",
+        app_id="896660",
+        query_port_offset=0,
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.return_value = "running"
+    self.ptero.get_server_allocation.return_value = ("192.168.1.50", 2456)
+    self.countdown.is_running.return_value = False
+    self.countdown.get_target.return_value = 0.0
+    self.countdown.get_remaining.return_value = 0
+    self.a2s.get_player_count.return_value = (3, 10)
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertEqual(server_data["port"], 2456)
+    # Valheim offset in PORT_OFFSET_MAP is 1 -> 2456 + 1 = 2457
+    self.assertEqual(server_data["query_port"], 2457)
+    self.a2s.get_player_count.assert_called_with("1.2.3.4", 2457)
+
+  async def test_status_service_unmapped_app_zero_offset_returns_game_port(self):
+    srv = ServerModel(
+        name="Palworld Zero Offset",
+        server_id="srv_pal_zero",
+        app_id="2394010",
+        query_port_offset=0,
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.return_value = "running"
+    self.ptero.get_server_allocation.return_value = ("192.168.1.50", 8211)
+    self.countdown.is_running.return_value = False
+    self.countdown.get_target.return_value = 0.0
+    self.countdown.get_remaining.return_value = 0
+    self.a2s.get_player_count.return_value = (5, 32)
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertEqual(server_data["port"], 8211)
+    # Palworld has no entry in PORT_OFFSET_MAP -> port 8211
+    self.assertEqual(server_data["query_port"], 8211)
+
+
+class TestResolveQueryPort(unittest.TestCase):
+
+  def test_resolve_query_port_with_nonzero_offset_direct_override(self):
+    # Non-zero offset overrides mapped games
+    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=2), 2458)
+    self.assertEqual(resolve_query_port("896660", 2456, query_port_offset=10), 2466)
+    # Non-zero offset for unmapped games
+    self.assertEqual(resolve_query_port(999999, 7777, query_port_offset=3), 7780)
+    self.assertEqual(resolve_query_port("unknown_game", 8000, query_port_offset=5), 8005)
+
+  def test_resolve_query_port_with_negative_offset(self):
+    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=-1), 2455)
+    self.assertEqual(resolve_query_port("custom", 10000, query_port_offset=-50), 9950)
+
+  def test_resolve_query_port_zero_offset_falls_back_to_port_offset_map(self):
+    # Valheim
+    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=0), 2457)
+    self.assertEqual(resolve_query_port("896660", 2456), 2457)
+    # Enshrouded
+    self.assertEqual(resolve_query_port(2278520, 15636, query_port_offset=0), 15637)
+    # V Rising
+    self.assertEqual(resolve_query_port(1829350, 9876, query_port_offset=0), 9877)
+    # 7 Days to Die
+    self.assertEqual(resolve_query_port(294420, 26900, query_port_offset=0), 26901)
+
+  def test_resolve_query_port_zero_offset_unmapped_returns_game_port(self):
+    self.assertEqual(resolve_query_port(2394010, 8211, query_port_offset=0), 8211)
+    self.assertEqual(resolve_query_port(999999, 7777, query_port_offset=0), 7777)
+    self.assertEqual(resolve_query_port("invalid_appid", 7777, query_port_offset=0), 7777)
+
+  def test_resolve_query_port_falsy_game_port(self):
+    self.assertEqual(resolve_query_port(896660, 0, query_port_offset=1), 0)
+    self.assertEqual(resolve_query_port(896660, None, query_port_offset=1), 0)
+
+  def test_resolve_query_port_string_offset(self):
+    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="3"), 2459)
+    # Invalid string offset falls back to 0 -> fallback to PORT_OFFSET_MAP (Valheim +1)
+    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="invalid"), 2457)
+
+  def test_resolve_query_port_string_game_port(self):
+    self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=2), 2458)
+    self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=0), 2457)
+    self.assertEqual(resolve_query_port(896660, " 2456 ", query_port_offset=" 3 "), 2459)
+    self.assertEqual(resolve_query_port(896660, "0", query_port_offset=1), 0)
+    self.assertEqual(resolve_query_port(896660, "", query_port_offset=1), 0)
+    self.assertEqual(resolve_query_port(896660, "invalid_port", query_port_offset=1), 0)
+
+  def test_resolve_query_port_out_of_range_clamping(self):
+    # Port must be within 1..65535; out-of-range offsets should return 0
+    self.assertEqual(resolve_query_port(896660, 65530, query_port_offset=10), 0)
+    self.assertEqual(resolve_query_port(896660, 1000, query_port_offset=-2000), 0)
+
+  def test_resolve_query_port_importable_from_status_service(self):
+    from app.services.status_service import resolve_query_port as status_resolve
+    self.assertEqual(status_resolve(896660, 2456, query_port_offset=4), 2460)
 
 
 if __name__ == "__main__":
