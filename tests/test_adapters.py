@@ -11,7 +11,7 @@ from app.adapters.power_tracker import PowerStateTracker
 from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.steam import SteamAdapter
 from app.core.config import TIMING_CONFIG
-from app.core.models import PlayerMetrics
+from app.core.models import PlayerMetrics, PowerSignal, PowerState
 from app.web.filters import discord_markdown
 
 
@@ -169,6 +169,70 @@ class TestPowerStateTracker(unittest.TestCase):
     self.assertIsNotNone(self.tracker.get_valid_cache("srv2"))
     self.tracker.invalidate()
     self.assertIsNone(self.tracker.get_valid_cache("srv2"))
+
+  def test_power_state_tracker_strenum_types(self):
+    # register_signal with PowerSignal enum
+    state = self.tracker.register_signal("srv1", PowerSignal.START)
+    self.assertIsInstance(state, PowerState)
+    self.assertIs(state, PowerState.STARTING)
+
+    # get_valid_cache returns PowerState enum
+    cached = self.tracker.get_valid_cache("srv1")
+    self.assertIsInstance(cached, PowerState)
+    self.assertIs(cached, PowerState.STARTING)
+
+    # filter_state with PowerState enum
+    filtered = self.tracker.filter_state("srv1", PowerState.RUNNING)
+    self.assertIsInstance(filtered, PowerState)
+    self.assertIs(filtered, PowerState.RUNNING)
+
+    # filter_state with Wings "stopped" string maps to PowerState.OFFLINE
+    self.tracker.register_signal("srv1", PowerSignal.STOP)
+    filtered_offline = self.tracker.filter_state("srv1", "stopped")
+    self.assertIsInstance(filtered_offline, PowerState)
+    self.assertIs(filtered_offline, PowerState.OFFLINE)
+
+    # filter_state with unexpected string maps to PowerState.UNKNOWN
+    unknown_state = self.tracker.filter_state("new_server", "crashed_or_gibberish")
+    self.assertIsInstance(unknown_state, PowerState)
+    self.assertIs(unknown_state, PowerState.UNKNOWN)
+
+  def test_power_state_tracker_rapid_consecutive_transitions(self):
+    # Rapid sequence START -> STOP -> START within grace windows
+    s1 = self.tracker.register_signal("srv_rapid", PowerSignal.START)
+    self.assertIs(s1, PowerState.STARTING)
+
+    s2 = self.tracker.register_signal("srv_rapid", PowerSignal.STOP)
+    self.assertIs(s2, PowerState.STOPPING)
+    self.assertTrue(self.tracker._get_entry("srv_rapid")["stopped_during_start"])
+
+    s3 = self.tracker.register_signal("srv_rapid", PowerSignal.START)
+    self.assertIs(s3, PowerState.STARTING)
+    self.assertFalse(self.tracker._get_entry("srv_rapid")["stopped_during_start"])
+
+    # Wings reports running -> transitions immediately to RUNNING with just_started flag
+    f = self.tracker.filter_state("srv_rapid", PowerState.RUNNING)
+    self.assertIs(f, PowerState.RUNNING)
+    self.assertTrue(self.tracker.pop_just_started("srv_rapid"))
+
+  def test_power_state_tracker_case_insensitivity_and_strings(self):
+    # Uppercase string signals and statuses
+    s_start = self.tracker.register_signal("srv_case", "START")
+    self.assertIs(s_start, PowerState.STARTING)
+
+    s_stop = self.tracker.register_signal("srv_case", "STOP")
+    self.assertIs(s_stop, PowerState.STOPPING)
+
+    # In STOPPING state, STOPPED transitions cleanly to OFFLINE
+    f_stopped = self.tracker.filter_state("srv_case", "STOPPED")
+    self.assertIs(f_stopped, PowerState.OFFLINE)
+
+    s_kill = self.tracker.register_signal("srv_case", "KILL")
+    self.assertIs(s_kill, PowerState.STOPPING)
+
+    # Invalid signal string leaves state unchanged
+    s_bad = self.tracker.register_signal("srv_case", "invalid_action")
+    self.assertIs(s_bad, PowerState.STOPPING)
 
 
 class TestSteamAdapterSanitization(unittest.IsolatedAsyncioTestCase):

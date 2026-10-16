@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from urllib.parse import urlparse
 import httpx
 
@@ -12,6 +12,8 @@ from app.core.exceptions import PterodactylApiError
 from app.core.models import (
     LocalBuildResult,
     OperationResult,
+    PowerSignal,
+    PowerState,
     ServerAllocation,
     ServerNameResult,
 )
@@ -247,7 +249,7 @@ class PterodactylAdapter:
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> str:
+  ) -> PowerState:
     # 1. Return fresh cached state if valid
     cached = self._tracker.get_valid_cache(server_id)
     if cached is not None:
@@ -267,24 +269,32 @@ class PterodactylAdapter:
           " state."
       )
 
-    return self._tracker.filter_state(server_id, "unknown")
+    return self._tracker.filter_state(server_id, PowerState.UNKNOWN)
 
   async def send_power_signal(
       self,
       panel_url: str,
       api_key: str,
       server_id: str,
-      signal: str,
+      signal: Union[PowerSignal, str],
       raise_on_error: bool = False,
   ) -> OperationResult:
+    try:
+      sig = PowerSignal.from_str(signal)
+    except (ValueError, TypeError):
+      result = OperationResult(False, f"Invalid power action '{signal}'.")
+      if raise_on_error:
+        result.raise_if_failed(server_id=server_id)
+      return result
+
     url = f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/power"
     try:
       res = await self._client.post(
-          url, json={"signal": signal}, headers=self._headers(api_key)
+          url, json={"signal": sig.value}, headers=self._headers(api_key)
       )
       if res.status_code in [200, 204]:
         # Seed the tracker with the initiated signal
-        self._tracker.register_signal(server_id, signal)
+        self._tracker.register_signal(server_id, sig)
         return OperationResult(True, None)
       result = OperationResult(False, f"Panel HTTP {res.status_code}: {res.text}")
     except Exception as e:
@@ -297,14 +307,15 @@ class PterodactylAdapter:
   async def trigger_restart(
       self, panel_url: str, api_key: str, server_id: str
   ) -> OperationResult:
-    power_state = await self.get_power_state(panel_url, api_key, server_id)
-    signal = "start" if power_state == "offline" else "restart"
+    raw_power = await self.get_power_state(panel_url, api_key, server_id)
+    power_state = PowerState.from_str(raw_power)
+    signal = PowerSignal.START if power_state == PowerState.OFFLINE else PowerSignal.RESTART
     success, err = await self.send_power_signal(
         panel_url, api_key, server_id, signal
     )
-    if not success and signal == "restart":
+    if not success and signal == PowerSignal.RESTART:
       success, err = await self.send_power_signal(
-          panel_url, api_key, server_id, "start"
+          panel_url, api_key, server_id, PowerSignal.START
       )
     if success:
       logger.info(

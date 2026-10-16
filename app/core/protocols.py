@@ -6,6 +6,8 @@ from app.core.models import (
     LocalBuildResult,
     OperationResult,
     PlayerMetrics,
+    PowerSignal,
+    PowerState,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
@@ -84,7 +86,7 @@ class PterodactylGateway(Protocol):
 
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
-  ) -> str:
+  ) -> PowerState:
     ...
 
   def consume_startup_transition(self, server_id: str) -> bool:
@@ -117,7 +119,11 @@ class PterodactylGateway(Protocol):
     ...
 
   async def send_power_signal(
-      self, panel_url: str, api_key: str, server_id: str, signal: str
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+      signal: PowerSignal | str,
   ) -> OperationResult:
     ...
 

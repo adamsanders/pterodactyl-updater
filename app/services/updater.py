@@ -5,7 +5,7 @@ import time
 from typing import Optional
 
 from app.core.config import TIMING_CONFIG
-from app.core.models import ServerModel
+from app.core.models import PowerState, ServerModel
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -20,7 +20,7 @@ from app.services.preview_store import WebhookPreviewStore
 
 logger = logging.getLogger("updater.orchestrator")
 
-TRANSITIONAL_POWER_STATES = frozenset({"starting", "stopping"})
+TRANSITIONAL_POWER_STATES = frozenset({PowerState.STARTING, PowerState.STOPPING})
 
 
 class UpdateOrchestrator:
@@ -123,8 +123,9 @@ class UpdateOrchestrator:
       latest_build: Optional[str],
       local_build: Optional[str],
       read_error: Optional[str],
-      power_state: str = "running",
+      power_state: PowerState | str = PowerState.RUNNING,
   ) -> None:
+    p_state = PowerState.from_str(power_state)
     if latest_build:
       server.latest_build = latest_build
     if local_build:
@@ -144,7 +145,7 @@ class UpdateOrchestrator:
         server.last_status = "Update Available — Countdown Started"
       elif self._restarted_builds.get(server.server_id) == latest_build:
         server.last_status = "Restart dispatched — waiting for build update"
-      elif server.auto_restart and power_state == "running":
+      elif server.auto_restart and p_state == PowerState.RUNNING:
         server.last_status = "Update Available — Countdown Started"
         task = asyncio.create_task(self.delayed_restart_routine(server))
         self.countdown.attach_task(server.server_id, task)
@@ -195,15 +196,15 @@ class UpdateOrchestrator:
         self.repo.save(cfg_disk)
 
     # 2. Check power state
-    power_state = await self.ptero.get_power_state(
-        panel_url, api_key, server.server_id
+    power_state = PowerState.from_str(
+        await self.ptero.get_power_state(panel_url, api_key, server.server_id)
     )
 
     # 2a. If manual restart/stop occurred externally during countdown, abort it
     if self.countdown.is_running(server.server_id) and power_state in (
-        "starting",
-        "stopping",
-        "offline",
+        PowerState.STARTING,
+        PowerState.STOPPING,
+        PowerState.OFFLINE,
     ):
       logger.info(
           f"[{server.name}] Power state is '{power_state}' during active"
@@ -248,7 +249,7 @@ class UpdateOrchestrator:
 
     # 4. Skip local manifest I/O if server is starting/stopping, or offline following update restart
     if power_state in TRANSITIONAL_POWER_STATES or (
-        power_state == "offline"
+        power_state == PowerState.OFFLINE
         and self._restarted_builds.get(server.server_id) == latest_build
     ):
       logger.info(
@@ -334,10 +335,12 @@ class UpdateOrchestrator:
 
       # 2. External power change cancelling active countdown
       if self.countdown.is_running(srv.server_id):
-        power = await self.ptero.get_power_state(
-            cfg.panel_url, cfg.api_key, srv.server_id
+        power = PowerState.from_str(
+            await self.ptero.get_power_state(
+                cfg.panel_url, cfg.api_key, srv.server_id
+            )
         )
-        if power in ("starting", "stopping", "offline"):
+        if power in (PowerState.STARTING, PowerState.STOPPING, PowerState.OFFLINE):
           logger.info(
               f"[{srv.name}] External power state '{power}' detected."
               " Cancelling auto-restart countdown."

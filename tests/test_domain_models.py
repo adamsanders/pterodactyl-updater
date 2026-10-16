@@ -18,9 +18,12 @@ from app.core.models import (
     LocalBuildResult,
     OperationResult,
     PlayerMetrics,
+    PowerSignal,
+    PowerState,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
+    ServerStatusDTO,
 )
 from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.steam import SteamAdapter
@@ -347,6 +350,157 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(metrics, PlayerMetrics)
     self.assertIsNone(metrics.current)
     self.assertIsNone(metrics.max)
+
+  async def test_pterodactyl_adapter_power_state_and_signal_typing(self):
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    adapter = PterodactylAdapter(mock_client)
+
+    # get_power_state returns PowerState enum instance
+    mock_client.get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"attributes": {"current_state": "running"}},
+    )
+    p_state = await adapter.get_power_state("http://panel", "key", "srv1")
+    self.assertIsInstance(p_state, PowerState)
+    self.assertIs(p_state, PowerState.RUNNING)
+    self.assertEqual(p_state, "running")
+
+    # send_power_signal accepts PowerSignal enum
+    mock_client.post.return_value = MagicMock(status_code=204)
+    res = await adapter.send_power_signal("http://panel", "key", "srv1", PowerSignal.RESTART)
+    self.assertTrue(res.success)
+
+    # send_power_signal rejects invalid signal string
+    res_bad = await adapter.send_power_signal("http://panel", "key", "srv1", "invalid_action")
+    self.assertFalse(res_bad.success)
+    self.assertIn("Invalid power action 'invalid_action'", res_bad.error)
+
+
+class TestPowerStateAndSignalEnums(unittest.TestCase):
+
+  def test_power_state_enum_values_and_identity(self):
+    self.assertEqual(PowerState.RUNNING, "running")
+    self.assertEqual(PowerState.OFFLINE, "offline")
+    self.assertEqual(PowerState.STARTING, "starting")
+    self.assertEqual(PowerState.STOPPING, "stopping")
+    self.assertEqual(PowerState.UNKNOWN, "unknown")
+
+    self.assertEqual(
+        {s.value for s in PowerState},
+        {"running", "offline", "starting", "stopping", "unknown"},
+    )
+
+  def test_power_signal_enum_values_and_identity(self):
+    self.assertEqual(PowerSignal.START, "start")
+    self.assertEqual(PowerSignal.STOP, "stop")
+    self.assertEqual(PowerSignal.RESTART, "restart")
+    self.assertEqual(PowerSignal.KILL, "kill")
+
+    self.assertEqual(
+        {s.value for s in PowerSignal},
+        {"start", "stop", "restart", "kill"},
+    )
+
+  def test_strenum_string_inheritance_and_formatting(self):
+    self.assertIsInstance(PowerState.RUNNING, str)
+    self.assertIsInstance(PowerSignal.RESTART, str)
+
+    self.assertEqual(str(PowerState.RUNNING), "running")
+    self.assertEqual(f"{PowerState.RUNNING}", "running")
+    self.assertEqual(str(PowerSignal.RESTART), "restart")
+    self.assertEqual(f"{PowerSignal.RESTART}", "restart")
+
+  def test_enum_instantiation_from_str(self):
+    self.assertIs(PowerState("running"), PowerState.RUNNING)
+    self.assertIs(PowerState("offline"), PowerState.OFFLINE)
+    self.assertIs(PowerSignal("restart"), PowerSignal.RESTART)
+    self.assertIs(PowerSignal("kill"), PowerSignal.KILL)
+
+    with self.assertRaises(ValueError):
+      PowerState("invalid_state")
+
+    with self.assertRaises(ValueError):
+      PowerSignal("explode")
+
+  def test_server_status_dto_power_state_validation(self):
+    dto = ServerStatusDTO(
+        idx=0,
+        server_id="srv1",
+        name="Server 1",
+        power_state=PowerState.RUNNING,
+        current_build="100",
+        latest_build="100",
+        last_status="Idle",
+        target_timestamp=0.0,
+        remaining_seconds=0,
+        is_updating=False,
+    )
+    self.assertIs(dto.power_state, PowerState.RUNNING)
+    self.assertEqual(dto.power_state, "running")
+
+    # String value coerced by Pydantic to PowerState enum
+    dto2 = ServerStatusDTO(
+        idx=0,
+        server_id="srv1",
+        name="Server 1",
+        power_state="offline",
+        current_build="100",
+        latest_build="100",
+        last_status="Idle",
+        target_timestamp=0.0,
+        remaining_seconds=0,
+        is_updating=False,
+    )
+    self.assertIs(dto2.power_state, PowerState.OFFLINE)
+
+    # Invalid power_state string raises ValidationError
+    from pydantic import ValidationError
+    with self.assertRaises(ValidationError):
+      ServerStatusDTO(
+          idx=0,
+          server_id="srv1",
+          name="Server 1",
+          power_state="destroyed",
+          current_build="100",
+          latest_build="100",
+          last_status="Idle",
+          target_timestamp=0.0,
+          remaining_seconds=0,
+          is_updating=False,
+      )
+
+  def test_power_state_and_signal_from_str_normalization(self):
+    # PowerState normalization
+    self.assertIs(PowerState.from_str(PowerState.RUNNING), PowerState.RUNNING)
+    self.assertIs(PowerState.from_str("running"), PowerState.RUNNING)
+    self.assertIs(PowerState.from_str("RUNNING"), PowerState.RUNNING)
+    self.assertIs(PowerState.from_str("  running  "), PowerState.RUNNING)
+    self.assertIs(PowerState.from_str("offline"), PowerState.OFFLINE)
+    self.assertIs(PowerState.from_str("OFFLINE"), PowerState.OFFLINE)
+    self.assertIs(PowerState.from_str("stopped"), PowerState.OFFLINE)
+    self.assertIs(PowerState.from_str("STOPPED"), PowerState.OFFLINE)
+    self.assertIs(PowerState.from_str("starting"), PowerState.STARTING)
+    self.assertIs(PowerState.from_str("stopping"), PowerState.STOPPING)
+    self.assertIs(PowerState.from_str("unknown"), PowerState.UNKNOWN)
+    self.assertIs(PowerState.from_str(None), PowerState.UNKNOWN)
+    self.assertIs(PowerState.from_str("gibberish_state"), PowerState.UNKNOWN)
+
+    # PowerSignal normalization
+    self.assertIs(PowerSignal.from_str(PowerSignal.START), PowerSignal.START)
+    self.assertIs(PowerSignal.from_str("start"), PowerSignal.START)
+    self.assertIs(PowerSignal.from_str("START"), PowerSignal.START)
+    self.assertIs(PowerSignal.from_str("  start  "), PowerSignal.START)
+    self.assertIs(PowerSignal.from_str("stop"), PowerSignal.STOP)
+    self.assertIs(PowerSignal.from_str("STOP"), PowerSignal.STOP)
+    self.assertIs(PowerSignal.from_str("restart"), PowerSignal.RESTART)
+    self.assertIs(PowerSignal.from_str("RESTART"), PowerSignal.RESTART)
+    self.assertIs(PowerSignal.from_str("kill"), PowerSignal.KILL)
+    self.assertIs(PowerSignal.from_str("KILL"), PowerSignal.KILL)
+
+    with self.assertRaises(ValueError):
+      PowerSignal.from_str("explode")
+    with self.assertRaises(ValueError):
+      PowerSignal.from_str(None)
 
 
 if __name__ == "__main__":

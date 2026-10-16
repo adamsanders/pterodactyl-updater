@@ -1,7 +1,12 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.core.models import AppConfigModel, ServerModel, SettingsUpdateDTO
+from app.core.models import (
+    AppConfigModel,
+    PowerSignal,
+    ServerModel,
+    SettingsUpdateDTO,
+)
 from app.services.server_service import ServerService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.preview_store import WebhookPreviewStore
@@ -288,6 +293,74 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
         api_key="key",
         server_id="id-second",
         signal="restart",
+    )
+
+  async def test_send_power_action_with_powersignal_enum(self):
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="key",
+        servers=[ServerModel(name="Target", server_id="srv-target")],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.send_power_signal.return_value = (True, None)
+
+    success, err = await self.service.send_power_action("srv-target", PowerSignal.START)
+    self.assertTrue(success)
+    self.assertIsNone(err)
+    self.ptero.send_power_signal.assert_called_once_with(
+        panel_url="http://panel.test",
+        api_key="key",
+        server_id="srv-target",
+        signal=PowerSignal.START,
+    )
+
+  async def test_send_power_action_rejects_invalid_signal(self):
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="key",
+        servers=[ServerModel(name="Target", server_id="srv-target")],
+    )
+    self.repo.load.return_value = cfg
+
+    res = await self.service.send_power_action("srv-target", "invalid_action")
+    self.assertFalse(res.success)
+    self.assertIn("Invalid power action 'invalid_action'", res.error)
+
+  async def test_send_power_action_cancels_active_countdown(self):
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="key",
+        servers=[ServerModel(name="Target", server_id="srv-target")],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.send_power_signal.return_value = (True, None)
+    self.countdown.start("srv-target", 300)
+    self.assertTrue(self.countdown.is_running("srv-target"))
+
+    # Sending RESTART cancels countdown
+    success, err = await self.service.send_power_action("srv-target", PowerSignal.RESTART)
+    self.assertTrue(success)
+    self.assertFalse(self.countdown.is_running("srv-target"))
+    self.repo.save.assert_called()
+    saved_cfg = self.repo.save.call_args[0][0]
+    self.assertIn("Countdown cancelled (restart requested)", saved_cfg.servers[0].last_status)
+
+  async def test_send_power_action_normalizes_case_and_whitespace(self):
+    cfg = AppConfigModel(
+        panel_url="http://panel.test",
+        api_key="key",
+        servers=[ServerModel(name="Target", server_id="srv-target")],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.send_power_signal.return_value = (True, None)
+
+    success, err = await self.service.send_power_action("srv-target", "  START  ")
+    self.assertTrue(success)
+    self.ptero.send_power_signal.assert_called_with(
+        panel_url="http://panel.test",
+        api_key="key",
+        server_id="srv-target",
+        signal=PowerSignal.START,
     )
 
   def test_simulate_build_update_by_server_id(self):

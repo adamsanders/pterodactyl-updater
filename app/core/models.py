@@ -1,4 +1,5 @@
-from typing import Any, List, NamedTuple, Optional
+from enum import Enum
+from typing import Any, List, NamedTuple, Optional, Union
 from app.core.config import IGNORED_STEAM_APPIDS
 from app.core.exceptions import (
     DomainError,
@@ -7,6 +8,55 @@ from app.core.exceptions import (
     ServerNotFoundError,
 )
 from pydantic import BaseModel, Field, model_validator
+
+try:
+    from enum import StrEnum
+except ImportError:
+    class StrEnum(str, Enum):
+        """Fallback StrEnum for Python < 3.11 with str value representation."""
+        def __str__(self) -> str:
+            return str(self.value)
+
+
+class PowerState(StrEnum):
+    RUNNING = "running"
+    OFFLINE = "offline"
+    STARTING = "starting"
+    STOPPING = "stopping"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_str(cls, value: Optional[Union["PowerState", str]]) -> "PowerState":
+        if isinstance(value, cls):
+            return value
+        val_str = (value or "unknown").lower().strip()
+        if val_str in ("offline", "stopped"):
+            return cls.OFFLINE
+        elif val_str == "running":
+            return cls.RUNNING
+        elif val_str == "starting":
+            return cls.STARTING
+        elif val_str == "stopping":
+            return cls.STOPPING
+        return cls.UNKNOWN
+
+
+class PowerSignal(StrEnum):
+    START = "start"
+    STOP = "stop"
+    RESTART = "restart"
+    KILL = "kill"
+
+    @classmethod
+    def from_str(cls, value: Optional[Union["PowerSignal", str]]) -> "PowerSignal":
+        if isinstance(value, cls):
+            return value
+        val_str = (value or "").lower().strip()
+        for member in cls:
+            if member.value == val_str:
+                return member
+        raise ValueError(f"Invalid power signal '{value}'")
+
 
 
 class ServerAllocation(NamedTuple):
@@ -184,7 +234,7 @@ class ServerStatusDTO(BaseModel):
     idx: int
     server_id: str
     name: str
-    power_state: str
+    power_state: PowerState
     current_build: str
     latest_build: str
     last_status: str

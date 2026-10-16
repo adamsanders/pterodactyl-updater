@@ -164,6 +164,29 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     server_data = snapshot["servers"][0]
     self.assertTrue(server_data["is_updating"])
 
+  async def test_stopped_string_telemetry_normalizes_to_offline(self):
+    srv = ServerModel(
+        name="Stopped Server",
+        server_id="srv_stopped",
+        app_id="896660",
+    )
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    # Raw 'stopped' returned from gateway/Wings must normalize safely to PowerState.OFFLINE
+    self.ptero.get_power_state.return_value = "stopped"
+    self.countdown.is_running.return_value = False
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    server_data = snapshot["servers"][0]
+    self.assertEqual(server_data["power_state"], "offline")
+    self.assertEqual(server_data["power_state"], "offline")
+
 
 if __name__ == "__main__":
   unittest.main()

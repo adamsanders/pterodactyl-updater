@@ -3,7 +3,12 @@ import logging
 from typing import Any, Callable, Optional
 
 from app.core.config import APP_VERSION, COMMIT_CODE, resolve_query_port
-from app.core.models import AppConfigModel, ServerModel, ServerStatusDTO
+from app.core.models import (
+    AppConfigModel,
+    PowerState,
+    ServerModel,
+    ServerStatusDTO,
+)
 from app.core.protocols import (
     A2SGateway,
     CallTrackerProtocol,
@@ -51,11 +56,12 @@ class StatusAggregationService:
       srv: ServerModel,
   ) -> ServerStatusDTO:
     """Pure query: reads telemetry, allocation, and power state for an individual game server."""
-    power = "unknown"
+    power: PowerState = PowerState.UNKNOWN
     if cfg.panel_url and cfg.api_key and srv.server_id:
-      power = await self.ptero.get_power_state(
+      raw_power = await self.ptero.get_power_state(
           cfg.panel_url, cfg.api_key, srv.server_id
       )
+      power = PowerState.from_str(raw_power)
 
     target_ts = self.countdown.get_target(srv.server_id)
     rem = self.countdown.get_remaining(srv.server_id)
@@ -73,7 +79,7 @@ class StatusAggregationService:
       if st.last_status != "Idle":
         srv_status = st.last_status
 
-    is_upd = (power != "offline") and (
+    is_upd = (power != PowerState.OFFLINE) and (
         self.countdown.is_running(srv.server_id)
         or (
             cur_build != lat_build
@@ -93,7 +99,7 @@ class StatusAggregationService:
     )
 
     player_count, max_players = None, None
-    if self.a2s and power == "running" and ext_ip and query_port:
+    if self.a2s and power == PowerState.RUNNING and ext_ip and query_port:
       player_count, max_players = await self.a2s.get_player_count(
           ext_ip, query_port
       )

@@ -9,6 +9,7 @@ from app.core.exceptions import (
 )
 from app.core.models import (
     OperationResult,
+    PowerSignal,
     ServerModel,
     SettingsUpdateDTO,
     WebhookPreview,
@@ -174,10 +175,11 @@ class ServerService:
     return success
 
   async def send_power_action(
-      self, identifier: Union[str, int], action: str
+      self, identifier: Union[str, int], action: Union[PowerSignal, str]
   ) -> OperationResult:
-    valid_actions = {"start", "restart", "stop", "kill"}
-    if action not in valid_actions:
+    try:
+      sig = PowerSignal.from_str(action)
+    except (ValueError, TypeError):
       return OperationResult(False, f"Invalid power action '{action}'.")
 
     cfg = self.repo.load()
@@ -196,14 +198,14 @@ class ServerService:
       self.orchestrator.clear_restarted_build(server.server_id)
 
     # Restart, stop, or kill cancels any pending update countdown
-    if action in ("restart", "stop", "kill"):
+    if sig in (PowerSignal.RESTART, PowerSignal.STOP, PowerSignal.KILL):
       if self.countdown.is_running(server.server_id):
         logger.info(
-            f"[{server.name}] Power action '{action}' triggered."
+            f"[{server.name}] Power action '{sig}' triggered."
             " Cancelling active auto-restart countdown."
         )
         self.countdown.stop(server.server_id)
-        status_msg = f"Countdown cancelled ({action} requested)"
+        status_msg = f"Countdown cancelled ({sig} requested)"
         server.last_status = status_msg
         if self.runtime_state:
           self.runtime_state.update_server_state(
@@ -215,7 +217,7 @@ class ServerService:
         panel_url=cfg.panel_url,
         api_key=cfg.api_key,
         server_id=server.server_id,
-        signal=action,
+        signal=sig,
     )
 
   async def test_webhook(self, identifier: Union[str, int]) -> None:

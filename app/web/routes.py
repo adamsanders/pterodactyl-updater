@@ -8,6 +8,7 @@ from app.core.exceptions import (
     ServerNotFoundError,
     SimulationError,
 )
+from app.core.models import PowerSignal
 from app.core.protocols import (
     CallTrackerProtocol,
     ConfigRepositoryProtocol,
@@ -215,7 +216,13 @@ async def server_power_action(
   cfg = repo.load()
   idx = service.find_server_index(cfg.servers, server_id)
   target_id = cfg.servers[idx].server_id if idx is not None else server_id
-  result = await service.send_power_action(server_id, action)
+
+  try:
+    signal = PowerSignal.from_str(action)
+  except ValueError:
+    signal = action
+
+  result = await service.send_power_action(server_id, signal)
   if hasattr(result, "raise_if_failed"):
     result.raise_if_failed(server_id=target_id)
   elif isinstance(result, tuple) and not result[0]:
@@ -225,7 +232,7 @@ async def server_power_action(
   return JSONResponse(
       {
           "status": "ok",
-          "action": action,
+          "action": str(signal),
           "server_id": target_id,
           "server_idx": idx if idx is not None else 0,
       }
