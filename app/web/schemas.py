@@ -1,6 +1,6 @@
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field
-from app.core.models import ServerModel, SettingsUpdateDTO
+from app.core.models import ServerModel, SettingsUpdateDTO, SingleServerSaveRequest
 from starlette.datastructures import FormData
 
 
@@ -14,15 +14,6 @@ class SimulateBuildRequest(BaseModel):
 class SyncNameRequest(BaseModel):
   """Typed JSON request body for synchronizing server name from Pterodactyl Panel."""
   server_id: str = ""
-
-
-class SingleServerSaveRequest(BaseModel):
-  """Typed JSON request body for saving an individual server card."""
-  name: str = ""
-  server_id: str = ""
-  app_id: str = ""
-  manifest_path: str = ""
-  query_port_offset: int = 0
 
 
 class SettingsFormData:
@@ -76,6 +67,11 @@ class SettingsFormData:
           break
 
       srv_name = get_field("srv_name", srv.name) or srv.name
+      srv_broadcast_cmd = (
+          get_field("srv_broadcast_cmd", getattr(srv, "broadcast_command_template", "say {message}"))
+          or get_field("srv_broadcast_command_template", getattr(srv, "broadcast_command_template", "say {message}"))
+          or "say {message}"
+      )
       servers.append(
           ServerModel(
               name=srv_name,
@@ -87,6 +83,7 @@ class SettingsFormData:
               warn_ingame_countdown=get_srv_bool("srv_warningame"),
               warn_discord_countdown=get_srv_bool("srv_warndiscord"),
               query_port_offset=port_offset,
+              broadcast_command_template=srv_broadcast_cmd,
           )
       )
 

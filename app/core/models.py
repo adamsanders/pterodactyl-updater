@@ -284,6 +284,7 @@ class ServerModel(BaseModel):
   warn_ingame_countdown: bool = False
   warn_discord_countdown: bool = False
   query_port_offset: int = 0
+  broadcast_command_template: str = "say {message}"
 
   # Ephemeral state private attributes for backward compatibility
   _current_build: str = PrivateAttr(default="Unknown")
@@ -401,6 +402,16 @@ class SettingsUpdateDTO(BaseModel):
   test_mode: bool = False
   ssl_verify: bool = False
   servers: List[ServerModel] = Field(default_factory=list)
+
+
+class SingleServerSaveRequest(BaseModel):
+  """Typed JSON request body for saving an individual server card."""
+  name: str = ""
+  server_id: str = ""
+  app_id: str = ""
+  manifest_path: str = ""
+  query_port_offset: int = 0
+  broadcast_command_template: str = "say {message}"
 
 
 class ServerStatusDTO(BaseModel):

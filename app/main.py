@@ -20,7 +20,6 @@ from app.services.status_service import StatusAggregationService
 from app.services.telemetry import CallTracker
 from app.services.updater import UpdateOrchestrator
 from app.core.exceptions import DomainError
-from app.web.filters import discord_markdown
 from app.web.routes import router as web_router
 from pathlib import Path
 from fastapi import FastAPI, Request
@@ -132,8 +131,8 @@ async def lifespan(application: FastAPI):
         orchestrator=orchestrator,
         a2s=a2s,
         call_tracker=call_tracker,
-        markdown_formatter=discord_markdown,
         runtime_state=runtime_state,
+        power_tracker=getattr(ptero, "_tracker", None),
     )
 
     application.state.repo = repo
@@ -150,6 +149,10 @@ async def lifespan(application: FastAPI):
     application.state.status_service = status_service
     application.state.announcements = announcement_service
     application.state.call_tracker = call_tracker
+    application.state.server_config_service = server_service.config_service
+    application.state.server_power_service = server_service.power_service
+    application.state.inspection_service = orchestrator.inspection_service
+    application.state.countdown_coordinator = orchestrator.countdown_coordinator
 
     bg_task = asyncio.create_task(orchestrator.start_background_loop())
     logger.info("Application initialized. Background updater loop started.")

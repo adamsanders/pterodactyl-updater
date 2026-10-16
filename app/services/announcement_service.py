@@ -54,8 +54,17 @@ class AnnouncementService:
     if is_first or server.warn_ingame_countdown:
       logger.info(f"[{server.name}] {msg}")
       if cfg.panel_url and cfg.api_key and server.server_id:
+        cmd_template = getattr(server, "broadcast_command_template", "say {message}") or "say {message}"
+        try:
+          if "{message}" in cmd_template:
+            cmd = cmd_template.format(message=msg)
+          else:
+            _ = cmd_template.format()
+            cmd = f"{cmd_template} {msg}"
+        except Exception:
+          cmd = f"say {msg}"
         await self.ptero.send_command(
-            cfg.panel_url, cfg.api_key, server.server_id, f"say {msg}"
+            cfg.panel_url, cfg.api_key, server.server_id, cmd
         )
 
     # 2. Discord notification

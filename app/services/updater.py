@@ -4,7 +4,6 @@ import logging
 import time
 from typing import Optional
 
-from app.core.config import TIMING_CONFIG
 from app.core.models import PowerState, ServerModel, ServerUpdateStatus
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -16,14 +15,15 @@ from app.core.protocols import (
 )
 from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
+from app.services.countdown_coordinator_service import CountdownCoordinatorService
 from app.services.preview_store import WebhookPreviewStore
+from app.services.server_inspection_service import ServerInspectionService
 
 logger = logging.getLogger("updater.orchestrator")
 
-TRANSITIONAL_POWER_STATES = frozenset({PowerState.STARTING, PowerState.STOPPING})
-
 
 class UpdateOrchestrator:
+  """Top-level loop coordinator orchestrating fleet inspection and restart workflows."""
 
   def __init__(
       self,
@@ -36,6 +36,8 @@ class UpdateOrchestrator:
       preview_store: Optional[WebhookPreviewStore] = None,
       simulator_store: Optional[BuildSimulatorStore] = None,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
+      inspection_service: Optional[ServerInspectionService] = None,
+      countdown_coordinator: Optional[CountdownCoordinatorService] = None,
   ):
     self.repo = repository
     self.ptero = ptero
@@ -44,6 +46,8 @@ class UpdateOrchestrator:
     self.simulator_store = simulator_store
     self.runtime_state = runtime_state
     self._restarted_builds: dict[str, str] = {}
+    self._loop_task: Optional[asyncio.Task] = None
+    self._running: bool = False
 
     if announcements is not None:
       self.announcements = announcements
@@ -56,6 +60,33 @@ class UpdateOrchestrator:
           preview_store=preview_store,
       )
 
+    if countdown_coordinator is not None:
+      self.countdown_coordinator = countdown_coordinator
+      self._restarted_builds = countdown_coordinator._restarted_builds
+    else:
+      self.countdown_coordinator = CountdownCoordinatorService(
+          repository=repository,
+          ptero=ptero,
+          countdown=countdown,
+          announcements=self.announcements,
+          runtime_state=runtime_state,
+          restarted_builds=self._restarted_builds,
+      )
+
+    if inspection_service is not None:
+      self.inspection_service = inspection_service
+    else:
+      self.inspection_service = ServerInspectionService(
+          repository=repository,
+          ptero=ptero,
+          steam=steam,
+          countdown_coordinator=self.countdown_coordinator,
+          countdown=countdown,
+          simulator_store=simulator_store,
+          runtime_state=runtime_state,
+          restarted_builds=self._restarted_builds,
+      )
+
   @property
   def discord(self) -> Optional[NotificationGateway]:
     return self.announcements.discord
@@ -65,10 +96,7 @@ class UpdateOrchestrator:
     return self.announcements.preview_store
 
   def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
-    if server_id:
-      self._restarted_builds.pop(server_id, None)
-    else:
-      self._restarted_builds.clear()
+    self.countdown_coordinator.clear_restarted_build(server_id)
 
   async def broadcast_warning(
       self,
@@ -76,46 +104,22 @@ class UpdateOrchestrator:
       minutes_left: int,
       include_patchnotes: bool = False,
   ) -> None:
-    await self.announcements.broadcast_warning(
+    await self.countdown_coordinator.broadcast_warning(
         server=server,
         minutes_left=minutes_left,
         include_patchnotes=include_patchnotes,
     )
 
   async def delayed_restart_routine(self, server: ServerModel) -> None:
-    cfg = self.repo.load()
-    total_seconds = TIMING_CONFIG.total_duration_seconds()
-    self.countdown.start(server.server_id, total_seconds)
-    warning_schedule = TIMING_CONFIG.compute_warning_schedule()
-    first_min = warning_schedule[0][0] if warning_schedule else 15
-    try:
-      for mins, sleep_secs in warning_schedule:
-        await self.broadcast_warning(
-            server=server, minutes_left=mins, include_patchnotes=(mins == first_min)
-        )
-        await asyncio.sleep(sleep_secs)
+    await self.countdown_coordinator.delayed_restart_routine(server)
 
-      logger.info(
-          f"[{server.name}] {total_seconds // 60}-minute countdown ended. Restarting server via Pterodactyl API."
-      )
-      server.last_status = "Restarting server via Pterodactyl API..."
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            last_status=server.last_status,
-        )
-      self._restarted_builds[server.server_id] = server.latest_build
-      self.countdown.stop(server.server_id)
-      await self.ptero.trigger_restart(
-          cfg.panel_url, cfg.api_key, server.server_id
-      )
-    except asyncio.CancelledError:
-      logger.info(
-          f"[{server.name}] Scheduled update countdown was cancelled."
-      )
-      raise
-    finally:
-      self.countdown.stop(server.server_id)
+  def start_countdown(self, server: ServerModel) -> asyncio.Task:
+    return self.countdown_coordinator.start_countdown(server)
+
+  def cancel_active_countdown(
+      self, server: ServerModel, reason: str = ""
+  ) -> None:
+    self.countdown_coordinator.cancel_active_countdown(server, reason=reason)
 
   async def _evaluate_build_status(
       self,
@@ -125,40 +129,13 @@ class UpdateOrchestrator:
       read_error: Optional[str],
       power_state: PowerState | str = PowerState.RUNNING,
   ) -> None:
-    p_state = PowerState.from_str(power_state)
-    if latest_build:
-      server.latest_build = latest_build
-    if local_build:
-      server.current_build = local_build
-
-    if read_error:
-      server.last_status = f"Error: {read_error}"
-    elif not latest_build:
-      server.last_status = f"{ServerUpdateStatus.ERROR}: Unreachable SteamCMD API"
-    elif latest_build == local_build:
-      if self.countdown.is_running(server.server_id):
-        self.countdown.stop(server.server_id)
-      self._restarted_builds.pop(server.server_id, None)
-      server.last_status = ServerUpdateStatus.UP_TO_DATE
-    else:
-      if self.countdown.is_running(server.server_id):
-        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
-      elif self._restarted_builds.get(server.server_id) == latest_build:
-        server.last_status = ServerUpdateStatus.RESTART_DISPATCHED
-      elif server.auto_restart and p_state == PowerState.RUNNING:
-        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
-        task = asyncio.create_task(self.delayed_restart_routine(server))
-        self.countdown.attach_task(server.server_id, task)
-      else:
-        server.last_status = ServerUpdateStatus.UPDATE_AVAILABLE
-
-    if self.runtime_state and server.server_id:
-      self.runtime_state.update_server_state(
-          server_id=server.server_id,
-          current_build=server.current_build,
-          latest_build=server.latest_build,
-          last_status=server.last_status,
-      )
+    await self.inspection_service.evaluate_build_status(
+        server=server,
+        latest_build=latest_build,
+        local_build=local_build,
+        read_error=read_error,
+        power_state=power_state,
+    )
 
   async def _inspect_server(
       self,
@@ -167,114 +144,11 @@ class UpdateOrchestrator:
       api_key: str,
       steam_build_cache: dict[str, Optional[str]],
   ) -> None:
-    if not server.server_id:
-      return
-
-    # 1. Synchronize server name
-    ptero_name, _ = await self.ptero.get_server_name(
-        panel_url, api_key, server.server_id
-    )
-    if ptero_name and server.name != ptero_name:
-      logger.info(
-          f"[{server.name}] Synchronized name from Pterodactyl: '{ptero_name}'"
-      )
-      server.name = ptero_name
-      cfg_disk = self.repo.load()
-      match_idx = next(
-          (
-              i
-              for i, s in enumerate(cfg_disk.servers)
-              if s.server_id == server.server_id
-          ),
-          None,
-      )
-      if (
-          match_idx is not None
-          and cfg_disk.servers[match_idx].name != ptero_name
-      ):
-        cfg_disk.servers[match_idx].name = ptero_name
-        self.repo.save(cfg_disk)
-
-    # 2. Check power state
-    power_state = PowerState.from_str(
-        await self.ptero.get_power_state(panel_url, api_key, server.server_id)
-    )
-
-    # 2a. If manual restart/stop occurred externally during countdown, abort it
-    if self.countdown.is_running(server.server_id) and power_state in (
-        PowerState.STARTING,
-        PowerState.STOPPING,
-        PowerState.OFFLINE,
-    ):
-      logger.info(
-          f"[{server.name}] Power state is '{power_state}' during active"
-          " countdown. Cancelling auto-restart."
-      )
-      self.countdown.stop(server.server_id)
-      self._restarted_builds.pop(server.server_id, None)
-      server.last_status = (
-          f"Manual {power_state} detected — countdown cancelled"
-      )
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            last_status=server.last_status,
-        )
-
-    # 3. Retrieve SteamCMD build info (always query to detect new/withdrawn/simulated builds)
-    if not server.app_id:
-      server.last_status = "App ID not configured"
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            last_status=server.last_status,
-        )
-      return
-
-    if self.simulator_store and self.simulator_store.has_simulated_build(
-        server.server_id
-    ):
-      latest_build = await self.steam.get_latest_build(
-          server.app_id, server_id=server.server_id
-      )
-    else:
-      if server.app_id not in steam_build_cache:
-        steam_build_cache[server.app_id] = await self.steam.get_latest_build(
-            server.app_id
-        )
-      latest_build = steam_build_cache[server.app_id]
-
-    if latest_build:
-      server.latest_build = latest_build
-
-    # 4. Skip local manifest I/O if server is starting/stopping, or offline following update restart
-    if power_state in TRANSITIONAL_POWER_STATES or (
-        power_state == PowerState.OFFLINE
-        and self._restarted_builds.get(server.server_id) == latest_build
-    ):
-      logger.info(
-          f"[{server.name}] Server is '{power_state}'. Skipping manifest I/O"
-          " this cycle."
-      )
-      return
-
-    # 6. Read local container manifest (safe when Online or Offline)
-    if not server.manifest_path:
-      server.last_status = "Manifest path not configured"
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            last_status=server.last_status,
-        )
-      return
-
-    local_build, err = await self.ptero.get_local_build(
-        panel_url, api_key, server.server_id, server.manifest_path
-    )
-
-    # 7. Evaluate status and progression
-    await self._evaluate_build_status(
-        server, latest_build, local_build, err, power_state
+    await self.inspection_service.inspect_server(
+        server=server,
+        panel_url=panel_url,
+        api_key=api_key,
+        steam_build_cache=steam_build_cache,
     )
 
   async def run_update_check(
@@ -345,20 +219,29 @@ class UpdateOrchestrator:
               f"[{srv.name}] External power state '{power}' detected."
               " Cancelling auto-restart countdown."
           )
-          self.countdown.stop(srv.server_id)
-          self._restarted_builds.pop(srv.server_id, None)
-          status_msg = f"Manual {power} detected — countdown cancelled"
-          srv.last_status = status_msg
-          if self.runtime_state:
-            self.runtime_state.update_server_state(
-                srv.server_id, last_status=status_msg
-            )
-          else:
+          self.countdown_coordinator.cancel_active_countdown(
+              srv, reason=f"Manual {power} detected"
+          )
+          if not self.runtime_state:
             self.repo.save(cfg)
 
+  def start_loop(self) -> asyncio.Task:
+    """Starts the background loop as an asyncio Task and returns the task handle."""
+    if self._loop_task is None or self._loop_task.done():
+      self._running = True
+      self._loop_task = asyncio.create_task(self.start_background_loop())
+    return self._loop_task
+
+  def stop_loop(self) -> None:
+    """Gracefully halts the active background loop task."""
+    self._running = False
+    if self._loop_task and not self._loop_task.done():
+      self._loop_task.cancel()
+
   async def start_background_loop(self) -> None:
+    self._running = True
     last_full_check = 0.0
-    while True:
+    while self._running:
       try:
         now = time.time()
         cfg = self.repo.load()
@@ -369,7 +252,12 @@ class UpdateOrchestrator:
           last_full_check = time.time()
 
         await self.monitor_server_lifecycle()
+      except asyncio.CancelledError:
+        break
       except Exception as e:
         logger.error(f"Scheduler exception: {e}")
 
-      await asyncio.sleep(2)
+      try:
+        await asyncio.sleep(2)
+      except asyncio.CancelledError:
+        break

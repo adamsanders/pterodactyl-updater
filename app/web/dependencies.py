@@ -14,7 +14,6 @@ from app.services.preview_store import WebhookPreviewStore
 from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
 from app.services.updater import UpdateOrchestrator
-from app.web.filters import discord_markdown
 
 
 def get_service(request: Request) -> ServerService:
@@ -65,7 +64,7 @@ def get_status_service(request: Request) -> StatusAggregationService:
         orchestrator=get_orchestrator(request),
         a2s=get_a2s(request),
         call_tracker=getattr(request.app.state, "call_tracker", None),
-        markdown_formatter=discord_markdown,
         runtime_state=get_runtime_state(request),
+        power_tracker=getattr(get_ptero(request), "_tracker", None),
     )
   return request.app.state.status_service

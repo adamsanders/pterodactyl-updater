@@ -36,6 +36,7 @@ from app.web.schemas import (
     SingleServerSaveRequest,
     SyncNameRequest,
 )
+from app.web.filters import discord_markdown
 from app.web.templating import templates
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -108,6 +109,19 @@ async def get_status_api(
     status_service: StatusAggregationService = Depends(get_status_service),
 ):
   snapshot = await status_service.get_status_snapshot()
+  if snapshot.get("preview"):
+    prev = snapshot["preview"]
+    if "formatted_message" not in prev:
+      prev["formatted_message"] = str(discord_markdown(prev.get("message", "")))
+    if "formatted_description" not in prev:
+      embed_desc = (
+          prev.get("embed", {}).get("description", "")
+          if prev.get("embed")
+          else ""
+      )
+      prev["formatted_description"] = (
+          str(discord_markdown(embed_desc)) if embed_desc else ""
+      )
   return JSONResponse(snapshot)
 
 
@@ -205,7 +219,7 @@ async def save_single_server_route(
     payload: SingleServerSaveRequest,
     service: ServerService = Depends(get_service),
 ):
-  updated = await service.save_single_server(server_id, payload.model_dump())
+  updated = await service.save_single_server(server_id, payload)
   return JSONResponse({"status": "ok", "server": updated.model_dump()})
 
 

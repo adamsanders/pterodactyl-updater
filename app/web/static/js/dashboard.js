@@ -319,13 +319,15 @@ function initServerBaselines() {
     const appidInput = document.getElementById('srv_appid_input_' + idx);
     const manifestInput = document.getElementById('srv_manifest_input_' + idx);
     const portOffsetInput = document.getElementById('srv_port_offset_input_' + idx);
+    const broadcastCmdInput = document.getElementById('srv_broadcast_cmd_input_' + idx);
 
     serverBaselines[idx] = {
       name: nameInput ? nameInput.value : '',
       server_id: idInput ? idInput.value : '',
       app_id: appidInput ? appidInput.value : '',
       manifest_path: manifestInput ? manifestInput.value : '',
-      query_port_offset: portOffsetInput ? portOffsetInput.value : '0'
+      query_port_offset: portOffsetInput ? portOffsetInput.value : '0',
+      broadcast_command_template: broadcastCmdInput ? broadcastCmdInput.value : 'say {message}'
     };
   });
 }
@@ -338,13 +340,15 @@ function isServerDirty(idx) {
   const appidInput = document.getElementById('srv_appid_input_' + idx);
   const manifestInput = document.getElementById('srv_manifest_input_' + idx);
   const portOffsetInput = document.getElementById('srv_port_offset_input_' + idx);
+  const broadcastCmdInput = document.getElementById('srv_broadcast_cmd_input_' + idx);
 
   return (
     (nameInput && nameInput.value !== base.name) ||
     (idInput && idInput.value !== base.server_id) ||
     (appidInput && appidInput.value !== base.app_id) ||
     (manifestInput && manifestInput.value !== base.manifest_path) ||
-    (portOffsetInput && portOffsetInput.value !== base.query_port_offset)
+    (portOffsetInput && portOffsetInput.value !== base.query_port_offset) ||
+    (broadcastCmdInput && broadcastCmdInput.value !== base.broadcast_command_template)
   );
 }
 
@@ -621,6 +625,7 @@ async function saveSingleServer(identifier, idx) {
   const rawOffset = document.getElementById('srv_port_offset_input_' + idx)?.value;
   const parsedOffset = parseInt(rawOffset, 10);
   const portOffsetVal = isNaN(parsedOffset) ? 0 : parsedOffset;
+  const broadcastCmdVal = document.getElementById('srv_broadcast_cmd_input_' + idx)?.value || 'say {message}';
 
   try {
     const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/save`, {
@@ -631,7 +636,8 @@ async function saveSingleServer(identifier, idx) {
         server_id: idVal,
         app_id: appidVal,
         manifest_path: manifestVal,
-        query_port_offset: portOffsetVal
+        query_port_offset: portOffsetVal,
+        broadcast_command_template: broadcastCmdVal
       })
     });
     const data = await res.json();
@@ -645,13 +651,16 @@ async function saveSingleServer(identifier, idx) {
       server_id: savedSrv.server_id,
       app_id: savedSrv.app_id,
       manifest_path: savedSrv.manifest_path,
-      query_port_offset: String(savedSrv.query_port_offset ?? 0)
+      query_port_offset: String(savedSrv.query_port_offset ?? 0),
+      broadcast_command_template: savedSrv.broadcast_command_template ?? 'say {message}'
     };
 
     const nameInput = document.getElementById('srv_name_input_' + idx);
     if (nameInput) nameInput.value = savedSrv.name;
     const portOffsetInput = document.getElementById('srv_port_offset_input_' + idx);
     if (portOffsetInput) portOffsetInput.value = savedSrv.query_port_offset ?? 0;
+    const broadcastCmdInput = document.getElementById('srv_broadcast_cmd_input_' + idx);
+    if (broadcastCmdInput) broadcastCmdInput.value = savedSrv.broadcast_command_template ?? 'say {message}';
     const titleEl = document.getElementById('srv_title_' + idx);
     if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${savedSrv.name}`;
 

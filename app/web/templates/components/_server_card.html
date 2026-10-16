@@ -162,6 +162,10 @@
       <label class="block text-xs text-gray-400 uppercase mb-1">Query Port Offset</label>
       <input id="srv_port_offset_input_{{ idx }}" name="srv_port_offset_{{ idx }}" type="number" value="{{ s.query_port_offset if (s and s.query_port_offset is not none) else 0 }}" placeholder="0" oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
     </div>
+    <div>
+      <label class="block text-xs text-gray-400 uppercase mb-1">Broadcast Command</label>
+      <input id="srv_broadcast_cmd_input_{{ idx }}" name="srv_broadcast_cmd_{{ idx }}" type="text" value="{{ s.broadcast_command_template if (s and s.broadcast_command_template) else 'say {message}' }}" placeholder="say {message}" oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
+    </div>
   </div>
 
   <div class="mt-4 pt-3 border-t border-gray-700/60 grid grid-cols-2 sm:grid-cols-4 gap-3">
