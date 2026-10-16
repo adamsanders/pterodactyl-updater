@@ -392,8 +392,21 @@ class ServerService:
       except Exception:
         if name_input:
           srv.name = name_input
-    elif name_input:
-      srv.name = name_input
-
     self.repo.save(cfg)
-    return srv
+    return srv
+
+  async def detect_server_details(self, server_id: str) -> dict:
+    """Queries Pterodactyl Panel to detect server name, Steam App ID, and manifest path."""
+    sid = server_id.strip()
+    if not sid:
+      raise ConfigurationError("Server ID cannot be empty.")
+    cfg = self.repo.load()
+    if not cfg.panel_url or not cfg.api_key:
+      raise ConfigurationError(
+          "Pterodactyl Panel URL and API Key must be configured first."
+      )
+    return await self.ptero.detect_server_details(cfg.panel_url, cfg.api_key, sid)
+
+  async def search_steam_games(self, query: str) -> list[dict]:
+    """Searches Steam catalog and dedicated servers by query."""
+    return await self.steam.search_games(query)

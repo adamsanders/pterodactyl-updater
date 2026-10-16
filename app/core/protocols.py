@@ -131,6 +131,11 @@ class PterodactylGateway(Protocol):
   ) -> None:
     ...
 
+  async def detect_server_details(
+      self, panel_url: str, api_key: str, server_id: str
+  ) -> dict:
+    ...
+
 
 class SteamGateway(Protocol):
 
@@ -140,6 +145,9 @@ class SteamGateway(Protocol):
     ...
 
   async def fetch_patchnotes(self, appid: int | str) -> Optional[dict]:
+    ...
+
+  async def search_games(self, query: str) -> list[dict]:
     ...
 
 

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.adapters.power_tracker import PowerStateTracker
+from app.core.config import POPULAR_DEDICATED_SERVERS
 from app.core.exceptions import PterodactylApiError
 from app.core.models import (
     LocalBuildResult,
@@ -142,6 +143,87 @@ class PterodactylAdapter:
       result.raise_if_failed(server_id=server_id)
     return result
 
+  async def detect_server_details(
+      self,
+      panel_url: str,
+      api_key: str,
+      server_id: str,
+  ) -> dict:
+    """Attempts to auto-detect server name, Steam App ID, and manifest path from Pterodactyl."""
+    details = {
+        "name": None,
+        "app_id": None,
+        "manifest_path": None,
+    }
+    headers = self._headers(api_key)
+    base_url = panel_url.rstrip("/")
+
+    # 1. Fetch general server details (name, invocation)
+    try:
+      res = await self._client.get(f"{base_url}/api/client/servers/{server_id}", headers=headers)
+      if res.status_code == 200:
+        attrs = res.json().get("attributes", {})
+        details["name"] = attrs.get("name")
+        invocation = attrs.get("invocation", "")
+        m = re.search(r"app_update\s+(\d+)", invocation)
+        if m:
+          details["app_id"] = m.group(1)
+    except Exception as e:
+      logger.warning(f"Error fetching server details for {server_id}: {e}")
+
+    # 2. Check startup parameters/variables for App ID
+    if not details["app_id"]:
+      try:
+        res = await self._client.get(f"{base_url}/api/client/servers/{server_id}/startup", headers=headers)
+        if res.status_code == 200:
+          data = res.json().get("data", [])
+          for item in data:
+            vattrs = item.get("attributes", {})
+            env_var = (vattrs.get("env_variable") or "").upper()
+            var_name = (vattrs.get("name") or "").lower()
+            val = str(vattrs.get("server_value") or vattrs.get("default_value") or "").strip()
+            if (
+                env_var in ("STEAM_APP_ID", "STEAM_APPID", "APP_ID", "APPID", "SRCDS_APPID", "GAME_ID", "GAME_APP_ID", "VANILLA_APPID")
+                or "app id" in var_name
+                or "appid" in var_name
+            ) and val.isdigit():
+              details["app_id"] = val
+              break
+      except Exception as e:
+        logger.debug(f"Could not inspect startup variables for {server_id}: {e}")
+
+    # 3. Check file list for appmanifest_<appid>.acf
+    try:
+      res = await self._client.get(f"{base_url}/api/client/servers/{server_id}/files/list?directory=steamapps", headers=headers)
+      if res.status_code == 200:
+        files = res.json().get("data", [])
+        for f in files:
+          fname = f.get("attributes", {}).get("name", "")
+          m = re.match(r"^appmanifest_(\d+)\.acf$", fname)
+          if m:
+            details["manifest_path"] = f"steamapps/{fname}"
+            if not details["app_id"]:
+              details["app_id"] = m.group(1)
+            break
+    except Exception as e:
+      logger.debug(f"Could not inspect steamapps directory for {server_id}: {e}")
+
+    # 4. If still not detected, try matching server name against known popular servers catalog
+    if not details["app_id"] and details.get("name"):
+      name_lower = details["name"].lower()
+      for srv in POPULAR_DEDICATED_SERVERS:
+        srv_name_lower = srv["name"].lower()
+        game_lower = srv.get("game", "").lower()
+        if (game_lower and game_lower in name_lower) or (srv_name_lower in name_lower):
+          details["app_id"] = srv["app_id"]
+          break
+
+    # If app_id was found but no specific manifest file was located, use standard path convention
+    if details["app_id"] and not details["manifest_path"]:
+      details["manifest_path"] = f"steamapps/appmanifest_{details['app_id']}.acf"
+
+    return details
+
   async def get_power_state(
       self, panel_url: str, api_key: str, server_id: str
   ) -> str:
@@ -221,6 +303,12 @@ class PterodactylAdapter:
       manifest_path: str,
       raise_on_error: bool = False,
   ) -> LocalBuildResult:
+    if not manifest_path or not server_id:
+      result = LocalBuildResult(None, "Manifest path or server ID is not configured")
+      if raise_on_error:
+        result.raise_if_failed(server_id=server_id)
+      return result
+
     clean_manifest = manifest_path.lstrip("/")
     url = (
         f"{panel_url.rstrip('/')}/api/client/servers/{server_id}/files/contents"

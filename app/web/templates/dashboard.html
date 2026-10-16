@@ -375,38 +375,169 @@
         clearTimeout(serverIdDebounceTimers[idx]);
       }
       serverIdDebounceTimers[idx] = setTimeout(() => {
-        autoSyncServerName(identifier, idx);
+        autoSyncServerDetails(identifier, idx);
       }, 700);
     }
 
     function onServerIdChange(identifier, idx) {
       checkServerDirty(idx);
-      autoSyncServerName(identifier, idx);
+      autoSyncServerDetails(identifier, idx);
     }
 
-    async function autoSyncServerName(identifier, idx) {
+    async function autoSyncServerDetails(identifier, idx) {
       const idInput = document.getElementById('srv_id_input_' + idx);
       const srvId = idInput?.value.trim();
       if (!srvId || srvId.length < 2) return;
       const nameInput = document.getElementById('srv_name_input_' + idx);
-      if (!nameInput) return;
-
-      const curName = nameInput.value.trim();
-      if (curName !== 'New Server' && curName !== '') return;
+      const appidInput = document.getElementById('srv_appid_input_' + idx);
+      const manifestInput = document.getElementById('srv_manifest_input_' + idx);
 
       try {
-        const res = await fetch(`/api/servers/lookup-name?server_id=${encodeURIComponent(srvId)}`);
+        const res = await fetch(`/api/servers/detect-details?server_id=${encodeURIComponent(srvId)}`);
         const data = await res.json();
-        if (res.ok && data.status === 'ok' && data.name) {
-          nameInput.value = data.name;
-          const titleEl = document.getElementById('srv_title_' + idx);
-          if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${data.name}`;
-          checkServerDirty(idx);
-          showToast(`Server name detected from Pterodactyl: ${data.name}`, 'info');
+        if (res.ok && data.status === 'ok' && data.details) {
+          const d = data.details;
+          let changed = false;
+          if (d.name && nameInput && (nameInput.value.trim() === 'New Server' || nameInput.value.trim() === '')) {
+            nameInput.value = d.name;
+            const titleEl = document.getElementById('srv_title_' + idx);
+            if (titleEl) titleEl.innerText = `Server #${parseInt(idx) + 1}: ${d.name}`;
+            changed = true;
+          }
+          if (d.app_id && appidInput && !appidInput.value.trim()) {
+            appidInput.value = d.app_id;
+            changed = true;
+          }
+          if (d.manifest_path && manifestInput && !manifestInput.value.trim()) {
+            manifestInput.value = d.manifest_path;
+            changed = true;
+          } else if (d.app_id && manifestInput && (!manifestInput.value.trim() || /appmanifest_896660\.acf/i.test(manifestInput.value))) {
+            updateManifestAppId(idx, d.app_id);
+            changed = true;
+          }
+
+          if (changed) {
+            checkServerDirty(idx);
+            if (d.app_id) {
+              showToast(`Detected ${d.name || 'Server'} (App ID: ${d.app_id}) from Pterodactyl`, 'info');
+            } else if (d.name) {
+              showToast(`Server name detected from Pterodactyl: ${d.name}`, 'info');
+            }
+          }
         }
       } catch (err) {
-        // Quiet fail on lookup during typing
+        // Quiet fail on debounce lookup
       }
+    }
+
+    function updateManifestAppId(idx, newAppId) {
+      const manifestInput = document.getElementById('srv_manifest_input_' + idx);
+      if (!manifestInput || !newAppId) return;
+      const currentPath = manifestInput.value.trim();
+      if (!currentPath) {
+        manifestInput.value = `steamapps/appmanifest_${newAppId}.acf`;
+      } else if (/appmanifest_.*\.acf/i.test(currentPath)) {
+        manifestInput.value = currentPath.replace(/appmanifest_.*\.acf/i, `appmanifest_${newAppId}.acf`);
+      } else if (currentPath.endsWith('.acf')) {
+        manifestInput.value = currentPath.replace(/[^\/\\\\]+\.acf$/i, `appmanifest_${newAppId}.acf`);
+      } else {
+        manifestInput.value = `${currentPath.replace(/\/+$/, '')}/appmanifest_${newAppId}.acf`;
+      }
+      checkServerDirty(idx);
+    }
+
+    function onSteamAppIdInput(idx) {
+      checkServerDirty(idx);
+      const appidInput = document.getElementById('srv_appid_input_' + idx);
+      const val = appidInput?.value.trim();
+      if (val && /^\d+$/.test(val)) {
+        updateManifestAppId(idx, val);
+      }
+    }
+
+    let steamSearchDebounceTimers = {};
+
+    function openSteamAppSearch(idx) {
+      const dropdown = document.getElementById('steam_search_dropdown_' + idx);
+      if (!dropdown) return;
+      dropdown.classList.remove('hidden');
+      const queryInput = document.getElementById('steam_search_query_' + idx);
+      if (queryInput && !queryInput.value.trim()) {
+        fetchSteamSearchResults(idx, '');
+      }
+    }
+
+    function toggleSteamAppSearch(idx) {
+      const dropdown = document.getElementById('steam_search_dropdown_' + idx);
+      if (!dropdown) return;
+      if (dropdown.classList.contains('hidden')) {
+        openSteamAppSearch(idx);
+        const queryInput = document.getElementById('steam_search_query_' + idx);
+        if (queryInput) queryInput.focus();
+      } else {
+        dropdown.classList.add('hidden');
+      }
+    }
+
+    function closeSteamAppSearch(idx) {
+      const dropdown = document.getElementById('steam_search_dropdown_' + idx);
+      if (dropdown) dropdown.classList.add('hidden');
+    }
+
+    function onSteamSearchQueryInput(idx) {
+      if (steamSearchDebounceTimers[idx]) {
+        clearTimeout(steamSearchDebounceTimers[idx]);
+      }
+      steamSearchDebounceTimers[idx] = setTimeout(() => {
+        const queryInput = document.getElementById('steam_search_query_' + idx);
+        fetchSteamSearchResults(idx, queryInput?.value.trim() || '');
+      }, 300);
+    }
+
+    async function fetchSteamSearchResults(idx, query) {
+      const resultsContainer = document.getElementById('steam_search_results_' + idx);
+      if (!resultsContainer) return;
+      resultsContainer.innerHTML = '<div class="text-gray-400 italic text-[11px] p-2 text-center">Searching Steam catalog...</div>';
+
+      try {
+        const res = await fetch(`/api/steam/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'ok' && Array.isArray(data.results)) {
+          if (data.results.length === 0) {
+            resultsContainer.innerHTML = '<div class="text-gray-500 italic text-[11px] p-2 text-center">No matching Steam games found.</div>';
+            return;
+          }
+          resultsContainer.innerHTML = data.results.map(item => {
+            const isDedi = item.type === 'dedicated_server';
+            const badgeBg = isDedi ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' : 'bg-gray-800 text-gray-400 border-gray-700';
+            const labelBadge = isDedi ? 'Dedicated Server' : 'Game';
+            const safeName = item.name.replace(/'/g, "\\'");
+            return `<div onclick="selectSteamGame(${idx}, '${item.app_id}', '${safeName}')" 
+                         class="flex items-center justify-between p-2 rounded hover:bg-gray-800/80 cursor-pointer transition border border-transparent hover:border-gray-700 select-none">
+              <div class="flex items-center gap-2 min-w-0 pr-2">
+                <span class="text-gray-200 font-medium truncate">${item.name}</span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg} whitespace-nowrap">${labelBadge}</span>
+              </div>
+              <span class="font-mono text-[11px] text-amber-300 bg-gray-950 px-1.5 py-0.5 rounded border border-gray-800 shrink-0">${item.app_id}</span>
+            </div>`;
+          }).join('');
+        } else {
+          resultsContainer.innerHTML = '<div class="text-red-400 text-[11px] p-2 text-center">Error loading results.</div>';
+        }
+      } catch (err) {
+        resultsContainer.innerHTML = '<div class="text-gray-500 italic text-[11px] p-2 text-center">Search unavailable.</div>';
+      }
+    }
+
+    function selectSteamGame(idx, appId, gameName) {
+      const appidInput = document.getElementById('srv_appid_input_' + idx);
+      if (appidInput) {
+        appidInput.value = appId;
+      }
+      updateManifestAppId(idx, appId);
+      closeSteamAppSearch(idx);
+      checkServerDirty(idx);
+      showToast(`Selected ${gameName} (${appId}). Manifest path updated.`, 'success');
     }
 
     async function refreshServerName(identifier, idx) {
@@ -910,6 +1041,19 @@
         }
         window.history.replaceState({}, document.title, window.location.pathname);
       }
+
+      document.addEventListener('click', (e) => {
+        document.querySelectorAll('[id^="steam_search_dropdown_"]').forEach(dropdown => {
+          if (!dropdown.classList.contains('hidden')) {
+            const idx = dropdown.id.replace('steam_search_dropdown_', '');
+            const input = document.getElementById('srv_appid_input_' + idx);
+            const toggleBtn = document.getElementById('steam_search_btn_' + idx);
+            if (!dropdown.contains(e.target) && e.target !== input && (!toggleBtn || !toggleBtn.contains(e.target))) {
+              dropdown.classList.add('hidden');
+            }
+          }
+        });
+      });
     });
   </script>
 </head>
@@ -1107,13 +1251,35 @@
               <label class="block text-xs text-gray-400 uppercase mb-1">Server ID (Hash)</label>
               <input id="srv_id_input_{{ idx }}" name="srv_id_{{ idx }}" type="text" value="{{ srv.server_id }}" required oninput="onServerIdInput('{{ srv.server_id or idx }}', {{ idx }})" onchange="onServerIdChange('{{ srv.server_id or idx }}', {{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
             </div>
-            <div>
-              <label class="block text-xs text-gray-400 uppercase mb-1">Steam App ID</label>
-              <input id="srv_appid_input_{{ idx }}" name="srv_appid_{{ idx }}" type="text" value="{{ srv.app_id }}" required oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm">
+            <div class="relative">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-gray-400 uppercase">Steam App ID</label>
+                <button type="button" id="steam_search_btn_{{ idx }}" onclick="toggleSteamAppSearch({{ idx }})" class="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  Search Steam
+                </button>
+              </div>
+              <div class="relative">
+                <input id="srv_appid_input_{{ idx }}" name="srv_appid_{{ idx }}" type="text" value="{{ srv.app_id }}" placeholder="e.g. 896660" required onfocus="openSteamAppSearch({{ idx }})" onclick="openSteamAppSearch({{ idx }})" oninput="onSteamAppIdInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
+              </div>
+
+              <!-- Steam Game Search Popover -->
+              <div id="steam_search_dropdown_{{ idx }}" class="hidden absolute top-full left-0 right-0 mt-1 z-30 bg-gray-900 border border-gray-700/80 rounded-lg shadow-2xl p-2.5 max-h-72 flex flex-col">
+                <div class="flex items-center justify-between gap-1 mb-2 pb-1.5 border-b border-gray-800">
+                  <div class="flex items-center gap-1.5 flex-1 bg-gray-950 border border-gray-800 rounded px-2 py-1">
+                    <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input type="text" id="steam_search_query_{{ idx }}" oninput="onSteamSearchQueryInput({{ idx }})" placeholder="Search game or server name..." class="bg-transparent border-none text-xs text-white focus:outline-none w-full">
+                  </div>
+                  <button type="button" onclick="closeSteamAppSearch({{ idx }})" class="text-gray-400 hover:text-white text-sm font-bold px-1.5">&times;</button>
+                </div>
+                <div id="steam_search_results_{{ idx }}" class="overflow-y-auto space-y-1 flex-1 pr-1 custom-scrollbar text-xs">
+                  <!-- Populated via fetchSteamSearchResults -->
+                </div>
+              </div>
             </div>
             <div>
               <label class="block text-xs text-gray-400 uppercase mb-1">Manifest Path</label>
-              <input id="srv_manifest_input_{{ idx }}" name="srv_manifest_{{ idx }}" type="text" value="{{ srv.manifest_path }}" required oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
+              <input id="srv_manifest_input_{{ idx }}" name="srv_manifest_{{ idx }}" type="text" value="{{ srv.manifest_path }}" placeholder="e.g. steamapps/appmanifest_896660.acf" required oninput="onServerTextInput({{ idx }})" class="w-full bg-gray-950 border border-gray-800 rounded p-1.5 text-sm font-mono">
             </div>
           </div>
 

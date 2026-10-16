@@ -454,6 +454,37 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     })
     self.assertEqual(updated.name, "Ptero Detected Name")
 
+  async def test_detect_server_details_delegates_to_pterodactyl_gateway(self):
+    cfg = AppConfigModel(panel_url="http://panel.test", api_key="test-key")
+    self.repo.load.return_value = cfg
+    self.ptero.detect_server_details.return_value = {
+        "name": "Enshrouded Server",
+        "app_id": "2230650",
+        "manifest_path": "steamapps/appmanifest_2230650.acf",
+    }
+
+    details = await self.service.detect_server_details("srv-enshrouded")
+    self.assertEqual(details["name"], "Enshrouded Server")
+    self.assertEqual(details["app_id"], "2230650")
+    self.ptero.detect_server_details.assert_called_once_with(
+        "http://panel.test", "test-key", "srv-enshrouded"
+    )
+
+  async def test_detect_server_details_unconfigured_panel_raises(self):
+    from app.core.exceptions import ConfigurationError
+    self.repo.load.return_value = AppConfigModel(panel_url="", api_key="")
+    with self.assertRaises(ConfigurationError):
+      await self.service.detect_server_details("srv-1")
+
+  async def test_search_steam_games_delegates_to_steam_gateway(self):
+    self.steam.search_games.return_value = [
+        {"app_id": "2230650", "name": "Enshrouded Dedicated Server", "type": "dedicated_server"}
+    ]
+    results = await self.service.search_steam_games("enshrouded")
+    self.assertEqual(len(results), 1)
+    self.assertEqual(results[0]["app_id"], "2230650")
+    self.steam.search_games.assert_called_once_with("enshrouded")
+
 
 class TestServerIdRouteIntegration(unittest.TestCase):
 
@@ -650,6 +681,28 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.assertEqual(res.status_code, 200)
     self.assertEqual(res.json().get("status"), "ok")
     self.assertEqual(res.json().get("server", {}).get("name"), "Saved Server")
+
+  def test_detect_details_route(self):
+    self.mock_service.detect_server_details = AsyncMock(
+        return_value={"name": "Enshrouded", "app_id": "2230650", "manifest_path": "steamapps/appmanifest_2230650.acf"}
+    )
+    res = self.client.get("/api/servers/detect-details?server_id=srv-enshrouded")
+    self.assertEqual(res.status_code, 200)
+    data = res.json()
+    self.assertEqual(data.get("status"), "ok")
+    self.assertEqual(data.get("details", {}).get("app_id"), "2230650")
+    self.mock_service.detect_server_details.assert_called_once_with("srv-enshrouded")
+
+  def test_steam_search_route(self):
+    self.mock_service.search_steam_games = AsyncMock(
+        return_value=[{"app_id": "2230650", "name": "Enshrouded", "type": "dedicated_server"}]
+    )
+    res = self.client.get("/api/steam/search?q=enshrouded")
+    self.assertEqual(res.status_code, 200)
+    data = res.json()
+    self.assertEqual(data.get("status"), "ok")
+    self.assertEqual(len(data.get("results", [])), 1)
+    self.mock_service.search_steam_games.assert_called_once_with("enshrouded")
 
 
 if __name__ == "__main__":

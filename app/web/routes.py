@@ -143,6 +143,24 @@ async def lookup_server_name(
   return JSONResponse({"status": "ok", "name": name})
 
 
+@router.get("/api/servers/detect-details")
+async def detect_server_details(
+    server_id: str = "",
+    service: ServerService = Depends(get_service),
+):
+  details = await service.detect_server_details(server_id)
+  return JSONResponse({"status": "ok", "details": details})
+
+
+@router.get("/api/steam/search")
+async def search_steam_games(
+    q: str = "",
+    service: ServerService = Depends(get_service),
+):
+  results = await service.search_steam_games(q)
+  return JSONResponse({"status": "ok", "results": results})
+
+
 @router.post("/api/servers/{server_id}/sync-name")
 async def sync_server_name(
     server_id: str,

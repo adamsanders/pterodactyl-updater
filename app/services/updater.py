@@ -221,6 +221,15 @@ class UpdateOrchestrator:
         )
 
     # 3. Retrieve SteamCMD build info (always query to detect new/withdrawn/simulated builds)
+    if not server.app_id:
+      server.last_status = "App ID not configured"
+      if self.runtime_state and server.server_id:
+        self.runtime_state.update_server_state(
+            server_id=server.server_id,
+            last_status=server.last_status,
+        )
+      return
+
     if self.simulator_store and self.simulator_store.has_simulated_build(
         server.server_id
     ):
@@ -272,6 +281,15 @@ class UpdateOrchestrator:
       return
 
     # 6. Read local container manifest (safe when Online or Offline)
+    if not server.manifest_path:
+      server.last_status = "Manifest path not configured"
+      if self.runtime_state and server.server_id:
+        self.runtime_state.update_server_state(
+            server_id=server.server_id,
+            last_status=server.last_status,
+        )
+      return
+
     local_build, err = await self.ptero.get_local_build(
         panel_url, api_key, server.server_id, server.manifest_path
     )

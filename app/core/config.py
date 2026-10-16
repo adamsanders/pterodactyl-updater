@@ -7,7 +7,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.11.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.12.0")
 
 
 @dataclass(frozen=True)
@@ -147,6 +147,38 @@ SERVER_TO_GAME_APPID: dict[str, str] = {
     "443030": "440900",  # Conan Exiles Dedicated Server -> Conan Exiles
     "1690800": "526870",  # Satisfactory Dedicated Server -> Satisfactory
 }
+
+GAME_TO_SERVER_APPID: dict[str, str] = {
+    v: k for k, v in SERVER_TO_GAME_APPID.items()
+}
+
+POPULAR_DEDICATED_SERVERS: list[dict] = [
+    {"app_id": "896660", "name": "Valheim Dedicated Server", "game": "Valheim"},
+    {"app_id": "2278520", "name": "Enshrouded Dedicated Server", "game": "Enshrouded"},
+    {"app_id": "2394010", "name": "Palworld Dedicated Server", "game": "Palworld"},
+    {"app_id": "258550", "name": "Rust Dedicated Server", "game": "Rust"},
+    {"app_id": "1829350", "name": "V Rising Dedicated Server", "game": "V Rising"},
+    {"app_id": "294420", "name": "7 Days to Die Dedicated Server", "game": "7 Days to Die"},
+    {"app_id": "1690800", "name": "Satisfactory Dedicated Server", "game": "Satisfactory"},
+    {"app_id": "380870", "name": "Project Zomboid Dedicated Server", "game": "Project Zomboid"},
+    {"app_id": "443030", "name": "Conan Exiles Dedicated Server", "game": "Conan Exiles"},
+    {"app_id": "2465200", "name": "Sons of the Forest Dedicated Server", "game": "Sons of the Forest"},
+    {"app_id": "376030", "name": "ARK: Survival Evolved Dedicated Server", "game": "ARK: Survival Evolved"},
+    {"app_id": "2430930", "name": "ARK: Survival Ascended Dedicated Server", "game": "ARK: Survival Ascended"},
+    {"app_id": "4020", "name": "Garry's Mod Dedicated Server", "game": "Garry's Mod"},
+    {"app_id": "740", "name": "Counter-Strike: Global Offensive Dedicated Server", "game": "CS:GO"},
+    {"app_id": "232250", "name": "Team Fortress 2 Dedicated Server", "game": "Team Fortress 2"},
+    {"app_id": "107410", "name": "Arma 3 Server", "game": "Arma 3"},
+    {"app_id": "233780", "name": "Arma Reforger Server", "game": "Arma Reforger"},
+    {"app_id": "223350", "name": "Left 4 Dead 2 Dedicated Server", "game": "Left 4 Dead 2"},
+    {"app_id": "1110390", "name": "DayZ Server", "game": "DayZ"},
+    {"app_id": "393390", "name": "Squad Dedicated Server", "game": "Squad"},
+    {"app_id": "283200", "name": "Unturned Dedicated Server", "game": "Unturned"},
+    {"app_id": "996560", "name": "Barotrauma Dedicated Server", "game": "Barotrauma"},
+    {"app_id": "696370", "name": "Astroneer Dedicated Server", "game": "Astroneer"},
+    {"app_id": "1963720", "name": "Icarus Dedicated Server", "game": "Icarus"},
+    {"app_id": "581330", "name": "Terraria Dedicated Server", "game": "Terraria"},
+]
 
 
 def resolve_game_appid(appid: int | str) -> str:

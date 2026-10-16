@@ -5,7 +5,7 @@ from app.core.exceptions import (
     PterodactylApiError,
     ServerNotFoundError,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ServerAllocation(NamedTuple):
@@ -132,8 +132,8 @@ class AppRuntimeState(BaseModel):
 class ServerModel(BaseModel):
   name: str = "New Server"
   server_id: str = ""
-  app_id: str = "896660"
-  manifest_path: str = "steamapps/appmanifest_896660.acf"
+  app_id: str = ""
+  manifest_path: str = ""
   auto_restart: bool = True
   discord_alerts: bool = True
   warn_ingame_countdown: bool = True
@@ -141,6 +141,12 @@ class ServerModel(BaseModel):
   current_build: str = Field(default="Unknown", exclude=True)
   latest_build: str = Field(default="Unknown", exclude=True)
   last_status: str = Field(default="Idle", exclude=True)
+
+  @model_validator(mode="after")
+  def default_manifest_from_appid(self) -> "ServerModel":
+    if not self.manifest_path and self.app_id:
+      self.manifest_path = f"steamapps/appmanifest_{self.app_id}.acf"
+    return self
 
 
 class AppConfigModel(BaseModel):

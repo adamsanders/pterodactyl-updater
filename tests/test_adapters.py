@@ -8,6 +8,7 @@ import httpx
 
 from app.adapters.a2s import A2SAdapter, A2S_INFO_REQUEST
 from app.adapters.power_tracker import PowerStateTracker
+from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.steam import SteamAdapter
 from app.core.config import TIMING_CONFIG
 from app.core.models import PlayerMetrics
@@ -377,6 +378,135 @@ class TestDiscordMarkdownFilter(unittest.TestCase):
     result = str(discord_markdown(text))
     self.assertIn('<div class="flex items-start gap-2 ml-1 my-0.5"><span class="text-gray-400 select-none">•</span><span class="flex-1">First fix</span></div>', result)
     self.assertIn('<div class="flex items-start gap-2 ml-1 my-0.5"><span class="text-gray-400 select-none">•</span><span class="flex-1">Second fix</span></div>', result)
+
+
+class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
+
+  def setUp(self):
+    self.mock_client = AsyncMock(spec=httpx.AsyncClient)
+    self.adapter = PterodactylAdapter(self.mock_client)
+
+  async def test_detect_server_details_from_startup_variables(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {
+            "data": [
+                {
+                    "attributes": {
+                        "env_variable": "APP_ID",
+                        "server_value": "2230650",
+                    }
+                }
+            ],
+            "meta": {"startup_command": "./server"},
+        }
+      elif url.endswith("/files/list"):
+        resp.json.return_value = {"data": []}
+      else:
+        resp.json.return_value = {
+            "attributes": {"name": "My Enshrouded Dedicated Server"}
+        }
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-1"
+    )
+    self.assertEqual(details["app_id"], "2230650")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2230650.acf")
+    self.assertEqual(details["name"], "My Enshrouded Dedicated Server")
+
+  async def test_detect_server_details_from_manifest_file(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {"data": [], "meta": {"startup_command": ""}}
+      elif "/files/list" in url:
+        resp.json.return_value = {
+            "data": [
+                {"attributes": {"name": "appmanifest_2394010.acf"}}
+            ]
+        }
+      else:
+        resp.json.return_value = {"attributes": {"name": "Palworld Server"}}
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-2"
+    )
+    self.assertEqual(details["app_id"], "2394010")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2394010.acf")
+    self.assertEqual(details["name"], "Palworld Server")
+
+  async def test_detect_server_details_from_server_name(self):
+    def fake_get(url, **kwargs):
+      resp = MagicMock()
+      resp.status_code = 200
+      if url.endswith("/startup"):
+        resp.json.return_value = {"data": [], "meta": {"startup_command": ""}}
+      elif "/files/list" in url:
+        resp.json.return_value = {"data": []}
+      else:
+        resp.json.return_value = {"attributes": {"name": "Official Valheim Realm"}}
+      return resp
+
+    self.mock_client.get = AsyncMock(side_effect=fake_get)
+
+    details = await self.adapter.detect_server_details(
+        "http://panel.test", "key", "srv-3"
+    )
+    self.assertEqual(details["app_id"], "896660")
+    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_896660.acf")
+    self.assertEqual(details["name"], "Official Valheim Realm")
+
+  async def test_get_local_build_empty_manifest_or_server_id_returns_clean_error(self):
+    build, err = await self.adapter.get_local_build(
+        "http://panel.test", "key", "", ""
+    )
+    self.assertIsNone(build)
+    self.assertIn("not configured", err)
+
+
+class TestSteamAdapterSearch(unittest.IsolatedAsyncioTestCase):
+
+  def setUp(self):
+    self.mock_client = AsyncMock(spec=httpx.AsyncClient)
+    self.adapter = SteamAdapter(self.mock_client)
+
+  async def test_search_empty_query_returns_popular_catalog(self):
+    results = await self.adapter.search_games("")
+    self.assertGreaterEqual(len(results), 5)
+    app_ids = [r["app_id"] for r in results]
+    self.assertIn("2278520", app_ids)  # Enshrouded
+    self.assertIn("896660", app_ids)   # Valheim
+
+  async def test_search_games_from_catalog(self):
+    results = await self.adapter.search_games("enshrouded")
+    self.assertGreaterEqual(len(results), 1)
+    enshrouded = next(r for r in results if r["app_id"] == "2278520")
+    self.assertIn("Enshrouded", enshrouded["name"])
+    self.assertEqual(enshrouded["type"], "dedicated_server")
+
+  async def test_search_games_store_api_fallback_and_mapping(self):
+    store_response = {
+        "total": 1,
+        "items": [
+            {"id": 108600, "name": "Project Zomboid"}
+        ]
+    }
+    self.mock_client.get = AsyncMock(
+        return_value=MagicMock(status_code=200, json=lambda: store_response)
+    )
+
+    results = await self.adapter.search_games("zomboid")
+    app_ids = [r["app_id"] for r in results]
+    self.assertIn("380870", app_ids)  # Project Zomboid Dedicated Server
 
 
 if __name__ == "__main__":

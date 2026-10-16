@@ -3,7 +3,11 @@ import json
 import logging
 import re
 from typing import Optional, Tuple
-from app.core.config import resolve_game_appid
+from app.core.config import (
+    GAME_TO_SERVER_APPID,
+    POPULAR_DEDICATED_SERVERS,
+    resolve_game_appid,
+)
 from app.core.exceptions import SteamApiError
 import httpx
 
@@ -209,3 +213,67 @@ class SteamAdapter:
       if raise_on_error:
         raise SteamApiError(f"Steam news fetch failed: {e}", app_id=str(appid))
     return None
+
+  async def search_games(self, query: str) -> list[dict]:
+    """Searches for games and dedicated servers matching a query."""
+    q = query.strip()
+    if not q:
+      return [
+          {
+              "app_id": srv["app_id"],
+              "name": srv["name"],
+              "type": "dedicated_server",
+          }
+          for srv in POPULAR_DEDICATED_SERVERS[:15]
+      ]
+
+    results: list[dict] = []
+    seen_appids: set[str] = set()
+
+    # 1. Match known dedicated server catalog
+    q_lower = q.lower()
+    for srv in POPULAR_DEDICATED_SERVERS:
+      if (
+          q_lower in srv["name"].lower()
+          or q_lower in srv.get("game", "").lower()
+          or q == srv["app_id"]
+      ):
+        if srv["app_id"] not in seen_appids:
+          seen_appids.add(srv["app_id"])
+          results.append({
+              "app_id": srv["app_id"],
+              "name": srv["name"],
+              "type": "dedicated_server",
+          })
+
+    # 2. Query Steam Store Search API
+    try:
+      url = f"https://store.steampowered.com/api/storesearch/?term={q}&l=english&cc=US"
+      res = await self._client.get(url, headers=self.headers, timeout=3.0)
+      if res.status_code == 200:
+        items = res.json().get("items", [])
+        for item in items:
+          item_id = str(item.get("id"))
+          item_name = item.get("name", "")
+
+          # Check if this game maps to a known dedicated server
+          dedi_id = GAME_TO_SERVER_APPID.get(item_id)
+          if dedi_id and dedi_id not in seen_appids:
+            seen_appids.add(dedi_id)
+            results.append({
+                "app_id": dedi_id,
+                "name": f"{item_name} Dedicated Server",
+                "type": "dedicated_server",
+            })
+
+          if item_id not in seen_appids:
+            seen_appids.add(item_id)
+            results.append({
+                "app_id": item_id,
+                "name": item_name,
+                "type": "game",
+            })
+    except Exception as e:
+      logger.debug(f"Steam store search failed for '{q}': {e}")
+
+    return results[:15]
