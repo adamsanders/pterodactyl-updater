@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional, Union
 
 from app.core.exceptions import ConfigurationError, ServerNotFoundError
-from app.core.models import OperationResult, PowerSignal, PowerState, ServerModel
+from app.core.models import AppConfigModel, OperationResult, PowerSignal, PowerState, ServerModel
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -32,33 +32,24 @@ class ServerPowerService:
     self.runtime_state = runtime_state
 
   def find_server_index(
-      self, servers: List[ServerModel], identifier: Union[str, int]
+      self,
+      servers_or_identifier: Union[List[ServerModel], AppConfigModel, str, int],
+      identifier: Optional[Union[str, int]] = None,
   ) -> Optional[int]:
     """Finds server index in the server collection by server_id or legacy numeric index."""
-    ident_str = str(identifier).strip()
-    if not ident_str:
-      return None
-
-    ident_lower = ident_str.lower()
-    for idx, srv in enumerate(servers):
-      if srv.server_id and srv.server_id.strip().lower() == ident_lower:
-        return idx
-
-    try:
-      numeric_idx = int(identifier)
-      if 0 <= numeric_idx < len(servers):
-        return numeric_idx
-    except (ValueError, TypeError):
-      pass
-
-    return None
+    if identifier is None:
+      cfg = self.repo.load()
+      return cfg.find_server_index(servers_or_identifier)
+    if isinstance(servers_or_identifier, AppConfigModel):
+      return servers_or_identifier.find_server_index(identifier)
+    return AppConfigModel.model_construct(servers=servers_or_identifier).find_server_index(identifier)
 
   async def get_power_state(
       self, identifier: Union[str, int]
   ) -> PowerState:
     """Queries current power state of the server from Pterodactyl gateway."""
     cfg = self.repo.load()
-    idx = self.find_server_index(cfg.servers, identifier)
+    idx = cfg.find_server_index(identifier)
     if idx is None:
       raise ServerNotFoundError(str(identifier))
     srv = cfg.servers[idx]
@@ -81,7 +72,7 @@ class ServerPowerService:
       )
 
     cfg = self.repo.load()
-    idx = self.find_server_index(cfg.servers, identifier)
+    idx = cfg.find_server_index(identifier)
     if idx is None:
       return OperationResult(
           False,
@@ -131,7 +122,7 @@ class ServerPowerService:
   ) -> OperationResult:
     """Executes a graceful restart or falls back according to Pterodactyl adapter restart policy."""
     cfg = self.repo.load()
-    idx = self.find_server_index(cfg.servers, identifier)
+    idx = cfg.find_server_index(identifier)
     if idx is None:
       raise ServerNotFoundError(str(identifier))
     server = cfg.servers[idx]

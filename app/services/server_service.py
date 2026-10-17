@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 from app.core.exceptions import SimulationError
 from app.core.models import (
+    AppConfigModel,
     DetectedServerDetails,
     OperationResult,
     PowerSignal,
@@ -107,9 +108,11 @@ class ServerService:
     return self.config_service.add_server(settings)
 
   def find_server_index(
-      self, servers: List[ServerModel], identifier: Union[str, int]
+      self,
+      servers_or_identifier: Union[List[ServerModel], AppConfigModel, str, int],
+      identifier: Optional[Union[str, int]] = None,
   ) -> Optional[int]:
-    return self.config_service.find_server_index(servers, identifier)
+    return self.config_service.find_server_index(servers_or_identifier, identifier)
 
   def delete_server(
       self, identifier: Union[str, int], settings: "SettingsUpdateDTO"

@@ -429,6 +429,31 @@ class AppConfigModel(BaseModel):
   def last_status(self, val: str) -> None:
     self._last_status = str(val)
 
+  def find_server_index(self, identifier: Union[int, str]) -> Optional[int]:
+    """Finds server index in the server collection by server_id or legacy numeric index."""
+    if identifier is None or isinstance(identifier, bool):
+      return None
+
+    ident_str = str(identifier).strip()
+    if not ident_str:
+      return None
+
+    ident_lower = ident_str.lower()
+    # 1. Match by server_id (case-insensitive)
+    for idx, srv in enumerate(self.servers):
+      if srv.server_id and srv.server_id.strip().lower() == ident_lower:
+        return idx
+
+    # 2. Match by legacy numeric index if identifier is numeric
+    try:
+      numeric_idx = int(identifier)
+      if 0 <= numeric_idx < len(self.servers):
+        return numeric_idx
+    except (ValueError, TypeError):
+      pass
+
+    return None
+
 
 
 

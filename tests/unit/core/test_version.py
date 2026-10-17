@@ -12,7 +12,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertEqual(APP_VERSION, "1.25.0")
+    self.assertEqual(APP_VERSION, "1.26.0")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)

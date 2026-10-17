@@ -1,8 +1,9 @@
 import threading
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 from app.core.models import (
     AppConfigModel,
     AppRuntimeState,
+    ServerModel,
     ServerRuntimeState,
     ServerUpdateStatus,
 )
@@ -94,6 +95,34 @@ class RuntimeStateStore:
   def get_all_server_states(self) -> Dict[str, ServerRuntimeState]:
     with self._lock:
       return {k: v.model_copy() for k, v in self._server_states.items()}
+
+  def reconcile_with_servers(self, servers: List[ServerModel]) -> None:
+    """Centralizes runtime state reconciliation: retains states for existing servers,
+    deletes states for removed servers, and initializes default state for newly added servers."""
+    with self._lock:
+      active_ids = {
+          str(s.server_id).strip().lower()
+          for s in servers
+          if s.server_id and str(s.server_id).strip()
+      }
+      # 1. Remove states for servers that are no longer in the active list
+      for old_id in list(self._server_states.keys()):
+        if old_id not in active_ids:
+          self._server_states.pop(old_id, None)
+
+      # 2. Ensure default state exists for all active servers
+      for s in servers:
+        s_id = str(s.server_id).strip().lower() if s.server_id else ""
+        if s_id and s_id not in self._server_states:
+          cur_build = getattr(s, "_ephemeral_current_build", None)
+          lat_build = getattr(s, "_ephemeral_latest_build", None)
+          last_status = getattr(s, "_ephemeral_last_status", None)
+          self._server_states[s_id] = ServerRuntimeState(
+              server_id=s_id,
+              current_build=str(cur_build) if cur_build is not None else "Unknown",
+              latest_build=str(lat_build) if lat_build is not None else "Unknown",
+              last_status=last_status or ServerUpdateStatus.IDLE,
+          )
 
   def seed_from_config(self, config: AppConfigModel) -> None:
     with self._lock:

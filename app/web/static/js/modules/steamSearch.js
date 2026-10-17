@@ -87,8 +87,9 @@ export async function fetchSteamSearchResults(idx, query) {
     const data = await res.json();
     clearChildren(resultsContainer);
 
-    if (res.ok && data.status === 'ok' && Array.isArray(data.results)) {
-      if (data.results.length === 0) {
+    const results = Array.isArray(data) ? data : (data && Array.isArray(data.results) ? data.results : null);
+    if (res.ok && results !== null) {
+      if (results.length === 0) {
         const emptyEl = document.createElement('div');
         emptyEl.className = 'text-gray-500 italic text-[11px] p-2 text-center';
         emptyEl.textContent = 'No matching Steam games found.';

@@ -9,7 +9,12 @@ from app.core.exceptions import (
     ServerNotFoundError,
     SimulationError,
 )
-from app.core.models import PowerSignal, ServerUpdateStatus
+from app.core.models import (
+    DetectedServerDetails,
+    PowerSignal,
+    ServerUpdateStatus,
+    SteamSearchResult,
+)
 from app.core.protocols import (
     CallTrackerProtocol,
     ConfigRepositoryProtocol,
@@ -32,6 +37,10 @@ from app.web.dependencies import (
     get_status_service,
 )
 from app.web.schemas import (
+    DashboardViewModel,
+    LookupNameResponse,
+    PowerActionResponse,
+    ServerCardViewModel,
     SettingsFormData,
     SimulateBuildRequest,
     SingleServerSaveRequest,
@@ -69,18 +78,30 @@ async def dashboard(
 
   preview = preview_store.get_preview() if preview_store else None
 
+  vm = DashboardViewModel.from_domain(
+      config=cfg,
+      runtime_states=runtime_states,
+      countdown=countdown,
+      last_check=last_check,
+      app_version=APP_VERSION,
+      commit_code=COMMIT_CODE,
+      preview=preview,
+  )
+
   return templates.TemplateResponse(
       request=request,
       name="dashboard.html",
       context={
-          "cfg": cfg,
-          "last_check": last_check,
+          "vm": vm,
+          "dashboard": vm,
+          "cfg": vm,
+          "last_check": vm.last_check,
           "runtime_states": runtime_states,
           "countdown": countdown,
-          "preview": preview,
-          "app_version": APP_VERSION,
-          "version": APP_VERSION,
-          "commit_code": COMMIT_CODE,
+          "preview": vm.preview,
+          "app_version": vm.app_version,
+          "version": vm.app_version,
+          "commit_code": vm.commit_code,
       },
   )
 
@@ -156,7 +177,7 @@ async def clear_preview(
   return JSONResponse({"status": "ok"})
 
 
-@router.get("/api/servers/lookup-name")
+@router.get("/api/servers/lookup-name", response_model=LookupNameResponse)
 async def lookup_server_name(
     server_id: str = "",
     service: ServerService = Depends(get_service),
@@ -165,7 +186,7 @@ async def lookup_server_name(
   return JSONResponse({"status": "ok", "name": name})
 
 
-@router.get("/api/servers/detect-details")
+@router.get("/api/servers/detect-details", response_model=DetectedServerDetails)
 async def detect_server_details(
     server_id: str = "",
     service: ServerService = Depends(get_service),
@@ -175,7 +196,7 @@ async def detect_server_details(
   return JSONResponse({"status": "ok", "details": data})
 
 
-@router.get("/api/steam/search")
+@router.get("/api/steam/search", response_model=list[SteamSearchResult])
 async def search_steam_games(
     q: str = "",
     service: ServerService = Depends(get_service),
@@ -226,7 +247,7 @@ async def save_single_server_route(
   return JSONResponse({"status": "ok", "server": updated.model_dump()})
 
 
-@router.post("/api/servers/{server_id}/power/{action}")
+@router.post("/api/servers/{server_id}/power/{action}", response_model=PowerActionResponse)
 async def server_power_action(
     server_id: str,
     action: str,

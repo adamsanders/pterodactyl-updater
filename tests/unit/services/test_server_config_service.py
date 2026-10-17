@@ -331,11 +331,11 @@ class TestServerConfigService(unittest.IsolatedAsyncioTestCase):
       await service.save_single_server("srv-1", {"name": ""})
 
     async def toggle_save():
-      await asyncio.sleep(0.005)  # fire while save_single_server is awaiting Pterodactyl get_server_name
+      await asyncio.sleep(0.005)  # fire concurrently while save_single_server holds the lock
       await service.toggle_server("srv-1", "auto_restart", True)
 
     await asyncio.gather(single_save(), toggle_save())
 
     self.assertEqual(repo.max_concurrent_writers, 1)
-    self.assertEqual(repo.cfg.servers[0].name, "Synced Remote Name")
+    self.assertEqual(repo.cfg.servers[0].name, "Init")
     self.assertTrue(repo.cfg.servers[0].auto_restart)

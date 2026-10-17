@@ -1,6 +1,6 @@
-from typing import List, Optional, Union
-from pydantic import BaseModel, Field
-from app.core.models import ServerModel
+from typing import Any, Dict, List, Optional, Union
+from pydantic import BaseModel, ConfigDict, Field
+from app.core.models import AppConfigModel, ServerModel, ServerRuntimeState
 from starlette.datastructures import FormData
 
 
@@ -43,6 +43,247 @@ class SimulateBuildRequest(BaseModel):
 class SyncNameRequest(BaseModel):
   """Typed JSON request body for synchronizing server name from Pterodactyl Panel."""
   server_id: str = ""
+
+
+class LookupNameResponse(BaseModel):
+  """Typed response model for server name lookup."""
+  model_config = ConfigDict(extra="allow")
+
+  name: Optional[str] = None
+  success: bool = True
+  status: str = "ok"
+
+
+class PowerActionResponse(BaseModel):
+  """Typed response model for server power actions."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str
+  server_id: str
+  action: str
+  effective_state: Optional[str] = None
+  server_idx: Optional[int] = None
+
+
+class ServerCardViewModel(BaseModel):
+  """Presentation ViewModel encapsulating individual server configuration and runtime telemetry."""
+  model_config = ConfigDict(extra="ignore")
+
+  card_index: int = 0
+  server_id: str = ""
+  name: str = ""
+  app_id: str = ""
+  manifest_path: str = ""
+  query_port_offset: int = 0
+  broadcast_command_template: str = "say {message}"
+  auto_restart: bool = False
+  discord_alerts: bool = False
+  warn_ingame_countdown: bool = False
+  warn_discord_countdown: bool = False
+  current_build: str = "Unknown"
+  latest_build: str = "Unknown"
+  status: str = ""
+  countdown_remaining: int = 0
+  countdown_target: int = 0
+
+  @property
+  def last_status(self) -> str:
+    return self.status
+
+  @property
+  def idx(self) -> int:
+    return self.card_index
+
+  def __getitem__(self, item: str) -> Any:
+    if hasattr(self, item):
+      return getattr(self, item)
+    raise KeyError(item)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    if hasattr(self, item):
+      val = getattr(self, item)
+      return val if val is not None else default
+    return default
+
+  def __contains__(self, item: str) -> bool:
+    return item in self.__class__.model_fields or hasattr(self, item)
+
+  def __iter__(self):
+    return iter(self.__class__.model_fields.keys())
+
+  def keys(self):
+    return self.__class__.model_fields.keys()
+
+  def values(self):
+    return [getattr(self, k) for k in self.__class__.model_fields.keys()]
+
+  def items(self):
+    return [(k, getattr(self, k)) for k in self.__class__.model_fields.keys()]
+
+  @classmethod
+  def from_domain(
+      cls,
+      server: ServerModel,
+      card_index: int = 0,
+      runtime_state: Optional[ServerRuntimeState] = None,
+      countdown_remaining: int = 0,
+      countdown_target: int = 0,
+  ) -> "ServerCardViewModel":
+    current_build = "Unknown"
+    latest_build = "Unknown"
+    status = ""
+
+    if runtime_state:
+      current_build = runtime_state.current_build or "Unknown"
+      latest_build = runtime_state.latest_build or "Unknown"
+      if runtime_state.last_status and str(runtime_state.last_status) != "Idle":
+        status = str(runtime_state.last_status)
+    else:
+      ephem_cur = getattr(server, "_ephemeral_current_build", None) or getattr(server, "current_build", None)
+      if ephem_cur:
+        current_build = str(ephem_cur)
+      ephem_lat = getattr(server, "_ephemeral_latest_build", None) or getattr(server, "latest_build", None)
+      if ephem_lat:
+        latest_build = str(ephem_lat)
+      ephem_stat = getattr(server, "_ephemeral_last_status", None) or getattr(server, "last_status", None)
+      if ephem_stat and str(ephem_stat) != "Idle":
+        status = str(ephem_stat)
+
+    if current_build == "Unknown":
+      ephem_cur = getattr(server, "_ephemeral_current_build", None) or getattr(server, "current_build", None)
+      if ephem_cur and str(ephem_cur) != "Unknown":
+        current_build = str(ephem_cur)
+    if latest_build == "Unknown":
+      ephem_lat = getattr(server, "_ephemeral_latest_build", None) or getattr(server, "latest_build", None)
+      if ephem_lat and str(ephem_lat) != "Unknown":
+        latest_build = str(ephem_lat)
+
+    return cls(
+        card_index=card_index,
+        server_id=server.server_id,
+        name=server.name,
+        app_id=server.app_id,
+        manifest_path=server.manifest_path,
+        query_port_offset=server.query_port_offset,
+        broadcast_command_template=server.broadcast_command_template,
+        auto_restart=server.auto_restart,
+        discord_alerts=server.discord_alerts,
+        warn_ingame_countdown=server.warn_ingame_countdown,
+        warn_discord_countdown=server.warn_discord_countdown,
+        current_build=current_build,
+        latest_build=latest_build,
+        status=status,
+        countdown_remaining=int(countdown_remaining),
+        countdown_target=int(countdown_target),
+    )
+
+
+class DashboardViewModel(BaseModel):
+  """Presentation ViewModel encapsulating global dashboard settings, servers, and telemetry."""
+  model_config = ConfigDict(extra="ignore")
+
+  panel_url: str = ""
+  api_key: str = ""
+  check_interval: int = 15
+  discord_webhook: str = ""
+  test_mode: bool = False
+  ssl_verify: bool = False
+  last_check: str = "Never"
+  last_status: str = "Idle"
+  servers: list[ServerCardViewModel] = Field(default_factory=list)
+  app_version: str = ""
+  commit_code: str = ""
+  preview: Optional[Union[WebhookPreview, dict]] = None
+
+  @property
+  def version(self) -> str:
+    return self.app_version
+
+  def __getitem__(self, item: str) -> Any:
+    if hasattr(self, item):
+      return getattr(self, item)
+    raise KeyError(item)
+
+  def get(self, item: str, default: Any = None) -> Any:
+    if hasattr(self, item):
+      val = getattr(self, item)
+      return val if val is not None else default
+    return default
+
+  def __contains__(self, item: str) -> bool:
+    return item in self.__class__.model_fields or hasattr(self, item)
+
+  def __iter__(self):
+    return iter(self.__class__.model_fields.keys())
+
+  def keys(self):
+    return self.__class__.model_fields.keys()
+
+  def values(self):
+    return [getattr(self, k) for k in self.__class__.model_fields.keys()]
+
+  def items(self):
+    return [(k, getattr(self, k)) for k in self.__class__.model_fields.keys()]
+
+  @classmethod
+  def from_domain(
+      cls,
+      config: AppConfigModel,
+      runtime_states: Optional[dict[str, ServerRuntimeState]] = None,
+      countdown: Optional[Any] = None,
+      last_check: Optional[str] = None,
+      last_status: Optional[str] = None,
+      app_version: str = "",
+      commit_code: str = "",
+      preview: Optional[Union[WebhookPreview, dict]] = None,
+  ) -> "DashboardViewModel":
+    effective_last_check = last_check or getattr(config, "last_check", "Never")
+    effective_last_status = last_status or getattr(config, "last_status", "Idle")
+    card_vms = []
+    for idx, srv in enumerate(config.servers):
+      sid = srv.server_id
+      st = None
+      if runtime_states and sid:
+        st = (
+            runtime_states.get(sid)
+            or runtime_states.get(sid.lower())
+            or runtime_states.get(sid.strip().lower())
+        )
+      rem = 0
+      target_ts = 0
+      if countdown and sid:
+        try:
+          rem = int(countdown.get_remaining(sid) or 0)
+        except Exception:
+          rem = 0
+        try:
+          target_ts = int(countdown.get_target(sid) or 0)
+        except Exception:
+          target_ts = 0
+
+      card_vm = ServerCardViewModel.from_domain(
+          server=srv,
+          card_index=idx,
+          runtime_state=st,
+          countdown_remaining=rem,
+          countdown_target=target_ts,
+      )
+      card_vms.append(card_vm)
+
+    return cls(
+        panel_url=config.panel_url,
+        api_key=config.api_key,
+        check_interval=config.check_interval,
+        discord_webhook=config.discord_webhook,
+        test_mode=config.test_mode,
+        ssl_verify=config.ssl_verify,
+        last_check=effective_last_check,
+        last_status=effective_last_status,
+        servers=card_vms,
+        app_version=app_version,
+        commit_code=commit_code,
+        preview=preview,
+    )
 
 
 class SettingsFormData:

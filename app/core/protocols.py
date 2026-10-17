@@ -60,6 +60,9 @@ class RuntimeStateStoreProtocol(Protocol):
   def get_all_server_states(self) -> dict[str, ServerRuntimeState]:
     ...
 
+  def reconcile_with_servers(self, servers: list[ServerModel]) -> None:
+    ...
+
   def seed_from_config(self, config: AppConfigModel) -> None:
     ...
 

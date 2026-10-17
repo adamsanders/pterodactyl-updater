@@ -1,9 +1,9 @@
 {% set idx = idx if idx is defined else (loop.index0 if loop is defined else 0) %}
 {% set s = srv if (srv is defined and srv) else None %}
 {% set srv_id = s.server_id if (s and s.server_id) else '' %}
-{% set st = runtime_states[srv_id] if (runtime_states is defined and runtime_states and srv_id in runtime_states) else None %}
-{% set rem = countdown.get_remaining(srv_id) if (countdown is defined and countdown and srv_id) else 0 %}
-{% set target_ts = countdown.get_target(srv_id) if (countdown is defined and countdown and srv_id) else 0 %}
+{% set st = runtime_states[srv_id] if (runtime_states is defined and runtime_states and srv_id in runtime_states) else (runtime_states[srv_id.lower()] if (runtime_states is defined and runtime_states and srv_id and srv_id.lower() in runtime_states) else None) %}
+{% set rem = countdown.get_remaining(srv_id) if (countdown is defined and countdown and srv_id) else (s.countdown_remaining if (s and s.countdown_remaining is defined) else 0) %}
+{% set target_ts = countdown.get_target(srv_id) if (countdown is defined and countdown and srv_id) else (s.countdown_target if (s and s.countdown_target is defined) else 0) %}
 <div class="bg-gray-800/80 border border-gray-700 rounded-lg p-4 mb-4 relative">
   <!-- Server Header -->
   <div class="flex justify-between items-center mb-2">
@@ -70,7 +70,7 @@
         <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
         Checking...
       </span>
-      <span id="srv_status_{{ idx }}" class="text-xs font-medium">{{ st.last_status if (st and st.last_status and st.last_status != 'Idle') else '' }}</span>
+      <span id="srv_status_{{ idx }}" class="text-xs font-medium">{{ st.last_status if (st and st.last_status and st.last_status != 'Idle') else (s.status if (s and s.status and s.status != 'Idle') else (s.last_status if (s and s.last_status and s.last_status != 'Idle') else '')) }}</span>
     </div>
 
     <!-- Network Address with Mouseover Internal IP & Player Count -->

@@ -720,23 +720,22 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     })
     self.assertEqual(updated.query_port_offset, 7)
 
-  async def test_save_single_server_auto_syncs_new_server_name(self):
-    from app.core.models import ServerNameResult
+  async def test_save_single_server_preserves_name_without_network_query(self):
     cfg = AppConfigModel(
         panel_url="http://panel.test",
         api_key="key",
-        servers=[ServerModel(name="New Server", server_id="")]
+        servers=[ServerModel(name="Existing Name", server_id="")]
     )
     self.repo.load.return_value = cfg
-    self.ptero.get_server_name.return_value = ServerNameResult("Ptero Detected Name", None)
 
     updated = await self.service.save_single_server(0, {
-        "name": "New Server",
+        "name": "",
         "server_id": "srv-new-hash",
         "app_id": "896660",
         "manifest_path": "steamapps/appmanifest_896660.acf",
     })
-    self.assertEqual(updated.name, "Ptero Detected Name")
+    self.assertEqual(updated.name, "Existing Name")
+    self.ptero.get_server_name.assert_not_called()
 
   async def test_detect_server_details_delegates_to_pterodactyl_gateway(self):
     cfg = AppConfigModel(panel_url="http://panel.test", api_key="test-key")

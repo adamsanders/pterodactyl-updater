@@ -8,6 +8,7 @@ from app.core.exceptions import (
     ServerNotFoundError,
 )
 from app.core.models import (
+    AppConfigModel,
     DetectedServerDetails,
     ServerModel,
     SteamSearchResult,
@@ -60,28 +61,17 @@ class ServerConfigService:
     self._lock = asyncio.Lock()
 
   def find_server_index(
-      self, servers: List[ServerModel], identifier: Union[str, int]
+      self,
+      servers_or_identifier: Union[List[ServerModel], AppConfigModel, str, int],
+      identifier: Optional[Union[str, int]] = None,
   ) -> Optional[int]:
     """Finds server index in the server collection by server_id or legacy numeric index."""
-    ident_str = str(identifier).strip()
-    if not ident_str:
-      return None
-
-    ident_lower = ident_str.lower()
-    # 1. Match by server_id (case-insensitive)
-    for idx, srv in enumerate(servers):
-      if srv.server_id and srv.server_id.strip().lower() == ident_lower:
-        return idx
-
-    # 2. Match by legacy numeric index if identifier is numeric
-    try:
-      numeric_idx = int(identifier)
-      if 0 <= numeric_idx < len(servers):
-        return numeric_idx
-    except (ValueError, TypeError):
-      pass
-
-    return None
+    if identifier is None:
+      cfg = self.repo.load()
+      return cfg.find_server_index(servers_or_identifier)
+    if isinstance(servers_or_identifier, AppConfigModel):
+      return servers_or_identifier.find_server_index(identifier)
+    return AppConfigModel.model_construct(servers=servers_or_identifier).find_server_index(identifier)
 
   def save_settings(self, settings: SettingsUpdateDTO):
     """Persists global settings and updates runtime state store tracking."""
@@ -103,18 +93,7 @@ class ServerConfigService:
     self.repo.save(cfg)
 
     if self.runtime_state:
-      new_ids = {
-          str(s.server_id).strip().lower()
-          for s in settings.servers
-          if s.server_id
-      }
-      existing_ids = list(self.runtime_state.get_all_server_states().keys())
-      for old_id in existing_ids:
-        if old_id not in new_ids:
-          self.runtime_state.remove_server_state(old_id)
-      for s in settings.servers:
-        if s.server_id:
-          self.runtime_state.get_server_state(s.server_id)
+      self.runtime_state.reconcile_with_servers(cfg.servers)
 
   def add_server(self, settings: SettingsUpdateDTO):
     """Appends a new unconfigured server template to configuration."""
@@ -137,16 +116,7 @@ class ServerConfigService:
     self.repo.save(cfg)
 
     if self.runtime_state:
-      new_ids = {
-          str(s.server_id).strip().lower() for s in cfg.servers if s.server_id
-      }
-      existing_ids = list(self.runtime_state.get_all_server_states().keys())
-      for old_id in existing_ids:
-        if old_id not in new_ids:
-          self.runtime_state.remove_server_state(old_id)
-      for s in cfg.servers:
-        if s.server_id:
-          self.runtime_state.get_server_state(s.server_id)
+      self.runtime_state.reconcile_with_servers(cfg.servers)
 
   def delete_server(
       self, identifier: Union[str, int], settings: SettingsUpdateDTO
@@ -171,23 +141,12 @@ class ServerConfigService:
     cfg.test_mode = settings.test_mode
     cfg.ssl_verify = settings.ssl_verify
     cfg.servers = list(settings.servers)
-    target_idx = self.find_server_index(cfg.servers, identifier)
-    removed_server_id = None
+    target_idx = cfg.find_server_index(identifier)
     if target_idx is not None:
-      removed_srv = cfg.servers.pop(target_idx)
-      removed_server_id = removed_srv.server_id
+      cfg.servers.pop(target_idx)
     self.repo.save(cfg)
     if self.runtime_state:
-      if removed_server_id:
-        self.runtime_state.remove_server_state(removed_server_id)
-      elif isinstance(identifier, str):
-        self.runtime_state.remove_server_state(identifier)
-      active_ids = {
-          str(s.server_id).strip().lower() for s in cfg.servers if s.server_id
-      }
-      for old_id in list(self.runtime_state.get_all_server_states().keys()):
-        if old_id not in active_ids:
-          self.runtime_state.remove_server_state(old_id)
+      self.runtime_state.reconcile_with_servers(cfg.servers)
 
   async def rename_server(
       self,
@@ -218,7 +177,7 @@ class ServerConfigService:
       cfg.ssl_verify = settings.ssl_verify
       cfg.servers = list(settings.servers)
 
-      repo_idx = self.find_server_index(cfg.servers, identifier)
+      repo_idx = cfg.find_server_index(identifier)
       if repo_idx is not None:
         if success:
           cfg.servers[repo_idx].name = new_name
@@ -264,7 +223,7 @@ class ServerConfigService:
           "Pterodactyl Panel URL and API Key must be configured first."
       )
 
-    idx = self.find_server_index(cfg.servers, identifier)
+    idx = cfg.find_server_index(identifier)
     if idx is None:
       raise ServerNotFoundError(str(identifier))
 
@@ -285,13 +244,15 @@ class ServerConfigService:
     if server_id_override:
       cfg.servers[idx].server_id = sid
     self.repo.save(cfg)
-    if (
-        self.runtime_state
-        and server_id_override
-        and old_sid
-        and old_sid.strip().lower() != sid.strip().lower()
-    ):
-      self.runtime_state.rename_server_state(old_sid, sid)
+    if self.runtime_state:
+      if (
+          server_id_override
+          and old_sid
+          and old_sid.strip().lower() != sid.strip().lower()
+      ):
+        self.runtime_state.rename_server_state(old_sid, sid)
+      elif sid:
+        self.runtime_state.get_server_state(sid)
     return res.name
 
   def update_server_toggle(
@@ -321,7 +282,7 @@ class ServerConfigService:
       )
 
     cfg = self.repo.load()
-    idx = self.find_server_index(cfg.servers, identifier)
+    idx = cfg.find_server_index(identifier)
     if idx is None:
       raise ServerNotFoundError(str(identifier))
 
@@ -344,7 +305,7 @@ class ServerConfigService:
     """Persists structured configuration changes for an individual server card."""
     async with self._lock:
       cfg = self.repo.load()
-      idx = self.find_server_index(cfg.servers, identifier)
+      idx = cfg.find_server_index(identifier)
       if idx is None:
         raise ServerNotFoundError(str(identifier))
 
@@ -414,18 +375,8 @@ class ServerConfigService:
 
         name_input = str(data.get("name", "")).strip() if "name" in data else ""
 
-      if name_input and name_input != "New Server":
+      if name_input:
         srv.name = name_input
-      elif srv.server_id and cfg.panel_url and cfg.api_key:
-        try:
-          res = await self.ptero.get_server_name(
-              cfg.panel_url, cfg.api_key, srv.server_id
-          )
-          if res.name:
-            srv.name = res.name
-        except Exception:
-          if name_input:
-            srv.name = name_input
 
       self.repo.save(cfg)
       if self.runtime_state:

@@ -164,8 +164,8 @@ export async function autoSyncServerDetails(identifier, idx) {
   try {
     const res = await fetch(`/api/servers/detect-details?server_id=${encodeURIComponent(srvId)}`);
     const data = await res.json();
-    if (res.ok && data.status === 'ok' && data.details) {
-      const d = data.details;
+    const d = (data && data.details) ? data.details : ((data && (data.app_id || data.name)) ? data : null);
+    if (res.ok && d) {
       let changed = false;
       if (d.name && nameInput && (nameInput.value.trim() === 'New Server' || nameInput.value.trim() === '')) {
         nameInput.value = d.name;
