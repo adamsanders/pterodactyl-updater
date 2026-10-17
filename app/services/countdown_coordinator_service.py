@@ -62,17 +62,27 @@ class CountdownCoordinatorService:
   def stop_countdown(self, server_id: str) -> None:
     self.countdown.stop(server_id)
 
-  def cancel_active_countdown(
-      self, server: ServerModel, reason: str = ""
+  def cancel_countdown(
+      self,
+      server_id: str,
+      reason: str = "",
+      server_name: Optional[str] = None,
   ) -> None:
-    """Aborts an in-progress countdown due to manual power signal or state divergence."""
-    if self.countdown.is_running(server.server_id):
+    """Cancels active countdown and cleans up tracking for a specific server_id."""
+    if not server_id or not str(server_id).strip():
+      return
+    sid = str(server_id).strip()
+    was_running = self.countdown.is_running(sid)
+    had_restarted = sid in self._restarted_builds
+    if was_running:
+      display = f"[{server_name or sid}]"
       logger.info(
-          f"[{server.name}] Cancelling auto-restart countdown."
+          f"{display} Cancelling auto-restart countdown."
           + (f" Reason: {reason}" if reason else "")
       )
-      self.countdown.stop(server.server_id)
-      self._restarted_builds.pop(server.server_id, None)
+      self.countdown.stop(sid)
+    self._restarted_builds.pop(sid, None)
+    if self.runtime_state and (was_running or had_restarted):
       if reason:
         status_msg = (
             reason
@@ -81,12 +91,44 @@ class CountdownCoordinatorService:
         )
       else:
         status_msg = "Countdown cancelled"
+      self.runtime_state.update_server_state(
+          server_id=sid,
+          last_status=status_msg,
+      )
+
+  def cancel_all_countdowns(
+      self, reason: str = "Application shutdown"
+  ) -> list[asyncio.Task]:
+    """Cancels and cleans up all active countdown tasks across all servers."""
+    tasks: list[asyncio.Task] = []
+    if hasattr(self.countdown, "stop_all"):
+      stopped = self.countdown.stop_all()
+      if isinstance(stopped, list):
+        tasks.extend(stopped)
+    else:
+      tasks_dict = getattr(self.countdown, "_tasks", {})
+      for sid in list(tasks_dict.keys()):
+        task = tasks_dict.get(sid)
+        if task and not task.done():
+          tasks.append(task)
+        self.countdown.stop(sid)
+    self._restarted_builds.clear()
+    return tasks
+
+  def cancel_active_countdown(
+      self, server: ServerModel, reason: str = ""
+  ) -> None:
+    """Aborts an in-progress countdown due to manual power signal or state divergence."""
+    if self.countdown.is_running(server.server_id):
+      self.cancel_countdown(
+          server.server_id, reason=reason, server_name=server.name
+      )
+      status_msg = (
+          reason
+          if "countdown cancelled" in reason.lower()
+          else f"{reason} — countdown cancelled"
+      ) if reason else "Countdown cancelled"
       object.__setattr__(server, "_ephemeral_last_status", status_msg)
-      if self.runtime_state and server.server_id:
-        self.runtime_state.update_server_state(
-            server_id=server.server_id,
-            last_status=status_msg,
-        )
 
   async def broadcast_warning(
       self,

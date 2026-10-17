@@ -77,8 +77,30 @@ class ServerService:
             ptero=ptero,
             steam=steam,
             runtime_state=runtime_state,
+            countdown_coordinator=(
+                orchestrator.countdown_coordinator
+                if orchestrator and hasattr(orchestrator, "countdown_coordinator")
+                else None
+            ),
+            countdown=countdown,
+            simulator_store=simulator_store,
         )
     )
+    if (
+        getattr(self.config_service, "countdown_coordinator", None) is None
+        and orchestrator
+        and hasattr(orchestrator, "countdown_coordinator")
+    ):
+      self.config_service.countdown_coordinator = (
+          orchestrator.countdown_coordinator
+      )
+    if getattr(self.config_service, "countdown", None) is None:
+      self.config_service.countdown = countdown
+    if getattr(self.config_service, "simulator_store", None) is None:
+      self.config_service.simulator_store = simulator_store
+    if getattr(self.config_service, "runtime_state", None) is None:
+      self.config_service.runtime_state = runtime_state
+
 
     self.power_service = (
         power_service
@@ -114,7 +136,9 @@ class ServerService:
     return self.config_service.find_server_index(servers_or_identifier, identifier)
 
   def delete_server(
-      self, identifier: Union[str, int], settings: SaveSettingsCommand
+      self,
+      identifier: Union[str, int],
+      settings: Optional[SaveSettingsCommand] = None,
   ):
     return self.config_service.delete_server(identifier, settings)
 

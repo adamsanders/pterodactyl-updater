@@ -106,3 +106,97 @@ class TestCountdownCoordinatorService(unittest.IsolatedAsyncioTestCase):
         await self.coordinator.delayed_restart_routine(server)
 
     self.assertFalse(self.countdown.is_running("srv-1"))
+
+  def test_cancel_countdown_by_server_id(self):
+    self.countdown.start("srv-10", 300)
+    self.restarted_builds["srv-10"] = "build-abc"
+
+    self.coordinator.cancel_countdown("srv-10", reason="Server deleted")
+
+    self.assertFalse(self.countdown.is_running("srv-10"))
+    self.assertNotIn("srv-10", self.restarted_builds)
+    st = self.runtime_state.get_server_state("srv-10")
+    self.assertIn("Server deleted", st.last_status)
+
+  def test_cancel_countdown_empty_or_whitespace_noop(self):
+    self.coordinator.cancel_countdown("")
+    self.coordinator.cancel_countdown("   ")
+    self.assertEqual(len(self.runtime_state.get_all_server_states()), 0)
+
+  def test_cancel_countdown_idle_server_leaves_runtime_state_untouched(self):
+    self.coordinator.cancel_countdown("srv-idle", reason="Manual restart")
+    self.assertEqual(len(self.runtime_state.get_all_server_states()), 0)
+
+  def test_cancel_all_countdowns(self):
+    self.countdown.start("srv-a", 300)
+    self.countdown.start("srv-b", 300)
+    self.restarted_builds["srv-a"] = "build-1"
+    self.restarted_builds["srv-b"] = "build-2"
+
+    tasks = self.coordinator.cancel_all_countdowns(reason="Application shutdown")
+
+    self.assertFalse(self.countdown.is_running("srv-a"))
+    self.assertFalse(self.countdown.is_running("srv-b"))
+    self.assertEqual(len(self.restarted_builds), 0)
+    self.assertIsInstance(tasks, list)
+
+  async def test_countdown_manager_stop_all_cancels_active_tasks(self):
+    cancelled_tasks = []
+
+    async def dummy_task(name):
+      try:
+        await asyncio.sleep(100)
+      except asyncio.CancelledError:
+        cancelled_tasks.append(name)
+        raise
+
+    task_a = asyncio.create_task(dummy_task("task_a"))
+    task_b = asyncio.create_task(dummy_task("task_b"))
+    await asyncio.sleep(0)  # Allow tasks to begin execution and enter sleep
+
+    self.countdown.start("srv-a", 300, task=task_a)
+    self.countdown.start("srv-b", 300, task=task_b)
+
+    self.countdown.stop_all()
+
+    # Yield control so cancellations propagate
+    await asyncio.sleep(0.01)
+
+    self.assertTrue(task_a.cancelled() or task_a.done())
+    self.assertTrue(task_b.cancelled() or task_b.done())
+    self.assertIn("task_a", cancelled_tasks)
+    self.assertIn("task_b", cancelled_tasks)
+    self.assertFalse(self.countdown.is_running("srv-a"))
+    self.assertFalse(self.countdown.is_running("srv-b"))
+
+  async def test_cancel_all_countdowns_returns_cancelled_tasks(self):
+    async def dummy():
+      try:
+        await asyncio.sleep(100)
+      except asyncio.CancelledError:
+        pass
+
+    t1 = asyncio.create_task(dummy())
+    t2 = asyncio.create_task(dummy())
+    await asyncio.sleep(0)
+
+    self.countdown.start("srv-1", 300, task=t1)
+    self.countdown.start("srv-2", 300, task=t2)
+
+    tasks = self.coordinator.cancel_all_countdowns()
+    self.assertEqual(len(tasks), 2)
+    await asyncio.sleep(0.01)
+    self.assertTrue(t1.cancelled() or t1.done())
+    self.assertTrue(t2.cancelled() or t2.done())
+
+  def test_countdown_manager_active_server_ids_and_target_only_stop_all(self):
+    self.countdown.start("srv-target-only", 300)
+    self.assertIn("srv-target-only", self.countdown.active_server_ids())
+    self.assertTrue(self.countdown.is_running("srv-target-only"))
+
+    self.countdown.stop_all()
+
+    self.assertFalse(self.countdown.is_running("srv-target-only"))
+    self.assertEqual(len(self.countdown.active_server_ids()), 0)
+
+

@@ -168,6 +168,116 @@ class TestConfigRepository(unittest.TestCase):
     self.assertFalse(loaded_legacy.ssl_verify)
     self.assertEqual(loaded_legacy.panel_url, "http://legacy.panel")
 
+  def test_async_save_roundtrip_persistence(self):
+    cfg = AppConfigModel(
+        panel_url="https://async.panel",
+        api_key="async_key",
+        check_interval=10,
+        servers=[ServerModel(name="Async Server", server_id="srv_async")],
+    )
+    asyncio.run(self.repo.async_save(cfg))
+
+    loaded = self.repo.load()
+    self.assertEqual(loaded.panel_url, "https://async.panel")
+    self.assertEqual(loaded.api_key, "async_key")
+    self.assertEqual(loaded.check_interval, 10)
+    self.assertEqual(len(loaded.servers), 1)
+    self.assertEqual(loaded.servers[0].name, "Async Server")
+
+    # Verify no leftover temporary files
+    files = os.listdir(self.test_dir)
+    temp_files = [f for f in files if f.startswith(".config_tmp_")]
+    self.assertEqual(len(temp_files), 0)
+
+  def test_async_save_offloads_to_thread(self):
+    cfg = AppConfigModel(panel_url="https://offload.test")
+    with patch("asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
+      asyncio.run(self.repo.async_save(cfg))
+      mock_to_thread.assert_called_once_with(self.repo.save, cfg)
+
+  def test_async_save_propagates_serialization_error(self):
+    cfg = AppConfigModel(panel_url="http://async_serial_fail.test")
+    with patch.object(AppConfigModel, "model_dump_json", side_effect=TypeError("Cannot serialize")):
+      with self.assertRaises(ConfigurationError) as ctx:
+        asyncio.run(self.repo.async_save(cfg))
+      self.assertIn("Failed to save configuration", str(ctx.exception))
+
+  def test_async_save_propagates_replace_error_and_cleans_temp(self):
+    original_cfg = AppConfigModel(panel_url="http://async_original.test")
+    self.repo.save(original_cfg)
+
+    new_cfg = AppConfigModel(panel_url="http://async_should_fail.test")
+    with patch("os.replace", side_effect=OSError("Disk failure")):
+      with self.assertRaises(ConfigurationError) as ctx:
+        asyncio.run(self.repo.async_save(new_cfg))
+      self.assertIn("Failed to save configuration", str(ctx.exception))
+
+    loaded = self.repo.load()
+    self.assertEqual(loaded.panel_url, "http://async_original.test")
+
+    # Verify temp files cleaned up
+    files = os.listdir(self.test_dir)
+    temp_files = [f for f in files if f.startswith(".config_tmp_")]
+    self.assertEqual(len(temp_files), 0)
+
+  def test_interleaved_sync_and_async_save_concurrency(self):
+    errors = []
+
+    async def async_worker(wid: int):
+      try:
+        for i in range(5):
+          cfg = AppConfigModel(
+              panel_url=f"http://async_{wid}_{i}.test",
+              check_interval=i + 1,
+          )
+          await self.repo.async_save(cfg)
+      except Exception as e:
+        errors.append(e)
+
+    def sync_worker(wid: int):
+      try:
+        for i in range(5):
+          cfg = AppConfigModel(
+              panel_url=f"http://sync_{wid}_{i}.test",
+              check_interval=i + 1,
+          )
+          self.repo.save(cfg)
+      except Exception as e:
+        errors.append(e)
+
+    async def main_runner():
+      threads = [threading.Thread(target=sync_worker, args=(i,)) for i in range(3)]
+      for t in threads:
+        t.start()
+      await asyncio.gather(*[async_worker(i) for i in range(3)])
+      for t in threads:
+        t.join()
+
+    asyncio.run(main_runner())
+    self.assertEqual(errors, [])
+    final = self.repo.load()
+    self.assertIsInstance(final, AppConfigModel)
+
+  def test_async_save_retries_on_transient_permission_error_and_succeeds(self):
+    cfg = AppConfigModel(panel_url="http://retry_success.test")
+    original_replace = os.replace
+    attempts = 0
+
+    def mock_replace(src, dst):
+      nonlocal attempts
+      attempts += 1
+      if attempts < 3:
+        raise PermissionError("Simulated transient Windows file lock")
+      return original_replace(src, dst)
+
+    with patch("os.replace", side_effect=mock_replace):
+      asyncio.run(self.repo.async_save(cfg))
+
+    self.assertEqual(attempts, 3)
+    loaded = self.repo.load()
+    self.assertEqual(loaded.panel_url, "http://retry_success.test")
+
 
 if __name__ == "__main__":
   unittest.main()
+

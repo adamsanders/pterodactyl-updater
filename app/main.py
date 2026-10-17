@@ -164,16 +164,22 @@ async def lifespan(application: FastAPI):
     application.state.inspection_service = orchestrator.inspection_service
     application.state.countdown_coordinator = orchestrator.countdown_coordinator
 
-    bg_task = asyncio.create_task(orchestrator.start_background_loop())
+    orchestrator.start_loop()
     logger.info("Application initialized. Background updater loop started.")
 
     yield
 
-    bg_task.cancel()
-    try:
-      await bg_task
-    except asyncio.CancelledError:
-      pass
+    orchestrator.stop_loop()
+    cancelled_tasks = orchestrator.cancel_all_countdowns(
+        reason="Application shutdown"
+    )
+    if cancelled_tasks:
+      await asyncio.gather(*cancelled_tasks, return_exceptions=True)
+    if orchestrator.loop_task:
+      try:
+        await orchestrator.loop_task
+      except asyncio.CancelledError:
+        pass
     logger.info("Background updater loop gracefully stopped.")
 
 

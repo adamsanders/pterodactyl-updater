@@ -1,6 +1,7 @@
 import asyncio
+from contextlib import asynccontextmanager
 import logging
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from app.core.exceptions import (
     ConfigurationError,
@@ -16,30 +17,16 @@ from app.core.models import (
     SteamSearchResult,
 )
 from app.core.protocols import (
+    BuildSimulatorProtocol,
     ConfigRepositoryProtocol,
+    CountdownCoordinatorGateway,
+    CountdownManagerProtocol,
     PterodactylGateway,
     RuntimeStateStoreProtocol,
     SteamGateway,
 )
 
 logger = logging.getLogger("updater.server_config")
-
-
-class _LockableOperation:
-  """Ensures read-modify-write configuration cycles are serialized via asyncio.Lock."""
-
-  def __init__(self, lock: asyncio.Lock, sync_fn, *args, **kwargs):
-    self._lock = lock
-    self._sync_fn = sync_fn
-    self._args = args
-    self._kwargs = kwargs
-
-  def __await__(self):
-    return self._run_async().__await__()
-
-  async def _run_async(self):
-    async with self._lock:
-      return self._sync_fn(*self._args, **self._kwargs)
 
 
 class ServerConfigService:
@@ -51,12 +38,46 @@ class ServerConfigService:
       ptero: PterodactylGateway,
       steam: SteamGateway,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
+      countdown_coordinator: Optional[CountdownCoordinatorGateway] = None,
+      countdown: Optional[CountdownManagerProtocol] = None,
+      simulator_store: Optional[BuildSimulatorProtocol] = None,
   ):
     self.repo = repository
     self.ptero = ptero
     self.steam = steam
     self.runtime_state = runtime_state
+    self.countdown_coordinator = countdown_coordinator
+    self.countdown = countdown
+    self.simulator_store = simulator_store
     self._lock = asyncio.Lock()
+
+  @property
+  def lock(self) -> asyncio.Lock:
+    """Exposes the internal asyncio.Lock instance for synchronization."""
+    return self._lock
+
+  @asynccontextmanager
+  async def synchronized(self):
+    """Context manager acquiring the service-level configuration mutex."""
+    async with self._lock:
+      yield
+
+  async def execute_locked(self, fn, *args, **kwargs):
+    """Executes a configuration modification under the service mutex lock."""
+    async with self._lock:
+      res = fn(*args, **kwargs)
+      if asyncio.iscoroutine(res):
+        return await res
+      return res
+
+  async def _persist_config(self, cfg: AppConfigModel) -> None:
+    """Persists config asynchronously if supported by repository, falling back to sync save."""
+    if hasattr(self.repo, "async_save") and callable(self.repo.async_save):
+      res = self.repo.async_save(cfg)
+      if asyncio.iscoroutine(res):
+        await res
+        return
+    self.repo.save(cfg)
 
   def find_server_index(
       self,
@@ -75,7 +96,7 @@ class ServerConfigService:
     """Persists global settings and updates runtime state store tracking."""
     try:
       asyncio.get_running_loop()
-      return _LockableOperation(self._lock, self._execute_save_settings, settings)
+      return self.execute_locked(self._execute_save_settings, settings)
     except RuntimeError:
       return self._execute_save_settings(settings)
 
@@ -90,6 +111,26 @@ class ServerConfigService:
     cfg.servers = list(settings.servers)
     self.repo.save(cfg)
 
+    active_ids = {
+        str(s.server_id).strip().lower()
+        for s in cfg.servers
+        if s.server_id and str(s.server_id).strip()
+    }
+    if self.countdown_coordinator and hasattr(
+        self.countdown_coordinator, "cancel_countdown"
+    ):
+      if self.countdown:
+        tracked_ids = (
+            self.countdown.active_server_ids()
+            if hasattr(self.countdown, "active_server_ids")
+            else list(getattr(self.countdown, "_tasks", {}).keys())
+        )
+        for sid in tracked_ids:
+          if str(sid).strip().lower() not in active_ids:
+            self.countdown_coordinator.cancel_countdown(
+                sid, reason="Server removed from configuration"
+            )
+
     if self.runtime_state:
       self.runtime_state.reconcile_with_servers(cfg.servers)
 
@@ -97,7 +138,7 @@ class ServerConfigService:
     """Appends a new unconfigured server template to configuration."""
     try:
       asyncio.get_running_loop()
-      return _LockableOperation(self._lock, self._execute_add_server, settings)
+      return self.execute_locked(self._execute_add_server, settings)
     except RuntimeError:
       return self._execute_add_server(settings)
 
@@ -117,34 +158,78 @@ class ServerConfigService:
       self.runtime_state.reconcile_with_servers(cfg.servers)
 
   def delete_server(
-      self, identifier: Union[str, int], settings: SaveSettingsCommand
+      self,
+      identifier: Union[str, int],
+      settings: Optional[SaveSettingsCommand] = None,
   ):
     """Deletes a server entry and cleans up ephemeral runtime telemetry."""
     try:
       asyncio.get_running_loop()
-      return _LockableOperation(
-          self._lock, self._execute_delete_server, identifier, settings
+      return self.execute_locked(
+          self._execute_delete_server, identifier, settings
       )
     except RuntimeError:
       return self._execute_delete_server(identifier, settings)
 
   def _execute_delete_server(
-      self, identifier: Union[str, int], settings: SaveSettingsCommand
+      self,
+      identifier: Union[str, int],
+      settings: Optional[SaveSettingsCommand] = None,
   ) -> None:
-    cfg = self.repo.load()
-    cfg.panel_url = settings.panel_url
-    cfg.api_key = settings.api_key
-    cfg.check_interval = settings.check_interval
-    cfg.discord_webhook = settings.discord_webhook
-    cfg.test_mode = settings.test_mode
-    cfg.ssl_verify = settings.ssl_verify
-    cfg.servers = list(settings.servers)
+    existing_cfg = self.repo.load()
+    deleted_server_id = None
+    existing_idx = existing_cfg.find_server_index(identifier)
+    if (
+        existing_idx is not None
+        and existing_idx < len(existing_cfg.servers)
+        and existing_cfg.servers[existing_idx].server_id
+    ):
+      deleted_server_id = existing_cfg.servers[existing_idx].server_id
+
+    if settings is not None:
+      cfg = existing_cfg
+      cfg.panel_url = settings.panel_url
+      cfg.api_key = settings.api_key
+      cfg.check_interval = settings.check_interval
+      cfg.discord_webhook = settings.discord_webhook
+      cfg.test_mode = settings.test_mode
+      cfg.ssl_verify = settings.ssl_verify
+      cfg.servers = list(settings.servers)
+    else:
+      cfg = existing_cfg
+
     target_idx = cfg.find_server_index(identifier)
     if target_idx is not None:
-      cfg.servers.pop(target_idx)
+      deleted_srv = cfg.servers.pop(target_idx)
+      if not deleted_server_id:
+        deleted_server_id = deleted_srv.server_id
+    elif not deleted_server_id and isinstance(identifier, str) and identifier.strip():
+      deleted_server_id = identifier.strip()
+
     self.repo.save(cfg)
-    if self.runtime_state:
-      self.runtime_state.reconcile_with_servers(cfg.servers)
+
+    runtime = self.runtime_state or getattr(
+        self.countdown_coordinator, "runtime_state", None
+    )
+
+    if deleted_server_id:
+      if self.countdown_coordinator and hasattr(
+          self.countdown_coordinator, "cancel_countdown"
+      ):
+        self.countdown_coordinator.cancel_countdown(
+            deleted_server_id, reason="Server deleted"
+        )
+      elif self.countdown:
+        self.countdown.stop(deleted_server_id)
+
+      if self.simulator_store:
+        self.simulator_store.clear_simulated_build(deleted_server_id)
+
+      if runtime:
+        runtime.remove_server_state(deleted_server_id)
+
+    if runtime:
+      runtime.reconcile_with_servers(cfg.servers)
 
   async def rename_server(
       self,
@@ -191,7 +276,7 @@ class ServerConfigService:
                 target_server.server_id, last_status=f"Rename failed: {err}"
             )
 
-      self.repo.save(cfg)
+      await self._persist_config(cfg)
       return success
 
   async def lookup_server_name(self, server_id: str) -> str:
@@ -241,7 +326,7 @@ class ServerConfigService:
     cfg.servers[idx].name = res.name
     if server_id_override:
       cfg.servers[idx].server_id = sid
-    self.repo.save(cfg)
+    await self._persist_config(cfg)
     if self.runtime_state:
       if (
           server_id_override
@@ -259,8 +344,8 @@ class ServerConfigService:
     """Toggles and immediately persists a single boolean setting on a server."""
     try:
       asyncio.get_running_loop()
-      return _LockableOperation(
-          self._lock, self._execute_update_server_toggle, identifier, field, value
+      return self.execute_locked(
+          self._execute_update_server_toggle, identifier, field, value
       )
     except RuntimeError:
       return self._execute_update_server_toggle(identifier, field, value)
@@ -293,7 +378,25 @@ class ServerConfigService:
   ) -> ServerModel:
     """Serialized asynchronous toggle server setting alias."""
     async with self._lock:
-      return self._execute_update_server_toggle(identifier, field, value)
+      allowed_fields = {
+          "auto_restart",
+          "discord_alerts",
+          "warn_ingame_countdown",
+          "warn_discord_countdown",
+      }
+      if field not in allowed_fields:
+        raise ConfigurationError(
+            f"Invalid toggle field '{field}'. Allowed fields: {allowed_fields}"
+        )
+
+      cfg = self.repo.load()
+      idx = cfg.find_server_index(identifier)
+      if idx is None:
+        raise ServerNotFoundError(str(identifier))
+
+      setattr(cfg.servers[idx], field, bool(value))
+      await self._persist_config(cfg)
+      return cfg.servers[idx]
 
   async def save_single_server(
       self,
@@ -380,7 +483,7 @@ class ServerConfigService:
       if name_input:
         srv.name = name_input
 
-      self.repo.save(cfg)
+      await self._persist_config(cfg)
       if self.runtime_state:
         if (
             old_server_id

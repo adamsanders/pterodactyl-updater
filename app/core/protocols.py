@@ -78,6 +78,9 @@ class ConfigRepositoryGateway(Protocol):
   def save(self, config: AppConfigModel) -> None:
     ...
 
+  async def async_save(self, config: AppConfigModel) -> None:
+    ...
+
 
 # Backward compatibility alias
 ConfigRepositoryProtocol = ConfigRepositoryGateway
@@ -256,6 +259,12 @@ class CountdownGateway(Protocol):
   def stop(self, server_id: str) -> None:
     ...
 
+  def stop_all(self) -> list[asyncio.Task]:
+    ...
+
+  def active_server_ids(self) -> list[str]:
+    ...
+
   def get_target(self, server_id: str) -> float:
     ...
 
@@ -347,9 +356,54 @@ class StatusAggregationGateway(Protocol):
     ...
 
 
+@runtime_checkable
+class CountdownCoordinatorGateway(Protocol):
+
+  def cancel_countdown(
+      self,
+      server_id: str,
+      reason: str = "",
+      server_name: Optional[str] = None,
+  ) -> None:
+    ...
+
+  def cancel_all_countdowns(
+      self, reason: str = "Application shutdown"
+  ) -> list[asyncio.Task]:
+    ...
+
+  def is_countdown_running(self, server_id: str) -> bool:
+    ...
+
+  def start_countdown(self, server: ServerModel) -> asyncio.Task:
+    ...
+
+
+# Backward compatibility alias
+CountdownCoordinatorProtocol = CountdownCoordinatorGateway
+
+
 class UpdateOrchestratorProtocol(Protocol):
 
+  @property
+  def loop_task(self) -> Optional[asyncio.Task]:
+    ...
+
+  def start_loop(self) -> asyncio.Task:
+    ...
+
+  def stop_loop(self) -> None:
+    ...
+
   def clear_restarted_build(self, server_id: Optional[str] = None) -> None:
+    ...
+
+  def cancel_countdown(self, server_id: str, reason: str = "") -> None:
+    ...
+
+  def cancel_all_countdowns(
+      self, reason: str = "Application shutdown"
+  ) -> list[asyncio.Task]:
     ...
 
   async def run_update_check(

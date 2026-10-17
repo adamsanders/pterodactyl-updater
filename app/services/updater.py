@@ -121,6 +121,14 @@ class UpdateOrchestrator:
   ) -> None:
     self.countdown_coordinator.cancel_active_countdown(server, reason=reason)
 
+  def cancel_countdown(self, server_id: str, reason: str = "") -> None:
+    self.countdown_coordinator.cancel_countdown(server_id, reason=reason)
+
+  def cancel_all_countdowns(
+      self, reason: str = "Application shutdown"
+  ) -> list[asyncio.Task]:
+    return self.countdown_coordinator.cancel_all_countdowns(reason=reason)
+
   async def _evaluate_build_status(
       self,
       server: ServerModel,
@@ -224,6 +232,11 @@ class UpdateOrchestrator:
           )
           if not self.runtime_state:
             self.repo.save(cfg)
+
+  @property
+  def loop_task(self) -> Optional[asyncio.Task]:
+    """Exposes the active background loop task handle."""
+    return self._loop_task
 
   def start_loop(self) -> asyncio.Task:
     """Starts the background loop as an asyncio Task and returns the task handle."""

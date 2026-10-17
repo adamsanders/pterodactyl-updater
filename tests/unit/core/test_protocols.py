@@ -13,6 +13,8 @@ from app.core.protocols import (
     A2SGateway,
     ConfigRepositoryGateway,
     ConfigRepositoryProtocol,
+    CountdownCoordinatorGateway,
+    CountdownCoordinatorProtocol,
     CountdownGateway,
     CountdownManagerProtocol,
     NotificationGateway,
@@ -131,6 +133,21 @@ class TestProtocolConformance(unittest.TestCase):
         preview_store=mock_preview,
     )
     self.assertIsInstance(service, StatusAggregationGateway)
+
+  def test_countdown_coordinator_conforms_to_countdown_coordinator_gateway(self):
+    from app.services.countdown_coordinator_service import CountdownCoordinatorService
+    mock_repo = MagicMock()
+    mock_ptero = AsyncMock()
+    mock_countdown = MagicMock()
+    mock_announcements = MagicMock()
+    coord = CountdownCoordinatorService(
+        repository=mock_repo,
+        ptero=mock_ptero,
+        countdown=mock_countdown,
+        announcements=mock_announcements,
+    )
+    self.assertIsInstance(coord, CountdownCoordinatorGateway)
+    self.assertIsInstance(coord, CountdownCoordinatorProtocol)
 
   def test_non_conforming_classes_fail_protocol_check(self):
     class IncompleteSteamAdapter:

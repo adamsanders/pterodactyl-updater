@@ -38,6 +38,30 @@ class CountdownManager:
     if task and not task.done() and task is not current:
       task.cancel()
 
+  def stop_all(self) -> list[asyncio.Task]:
+    """Cancels all active countdown tasks and clears expiration targets."""
+    tasks: list[asyncio.Task] = []
+    all_server_ids = set(self._tasks.keys()) | set(self._targets.keys())
+    for server_id in all_server_ids:
+      task = self._tasks.get(server_id)
+      if task and not task.done():
+        tasks.append(task)
+      self.stop(server_id)
+    self._targets.clear()
+    return tasks
+
+  def active_server_ids(self) -> list[str]:
+    """Returns list of server IDs currently running a countdown task or unexpired target."""
+    now = time.time()
+    active = set()
+    for sid, task in self._tasks.items():
+      if not task.done():
+        active.add(sid)
+    for sid, target in self._targets.items():
+      if target > now:
+        active.add(sid)
+    return list(active)
+
   def get_target(self, server_id: str) -> float:
     return self._targets.get(server_id, 0.0)
 
