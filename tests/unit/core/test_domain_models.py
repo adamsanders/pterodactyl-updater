@@ -620,17 +620,17 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     self.assertEqual(ServerModel.model_validate({"query_port_offset": None}).query_port_offset, 0)
     self.assertEqual(ServerModel.model_validate({"query_port_offset": ""}).query_port_offset, 0)
 
-  def test_settings_update_dto_preserves_query_port_offset(self):
-    from app.web.schemas import SettingsUpdateDTO
-    dto = SettingsUpdateDTO(
+  def test_save_settings_command_preserves_query_port_offset(self):
+    from app.core.models import SaveSettingsCommand
+    cmd = SaveSettingsCommand(
         servers=[
             ServerModel(name="Srv 1", query_port_offset=0),
             ServerModel(name="Srv 2", query_port_offset=15),
         ]
     )
-    self.assertEqual(dto.servers[0].query_port_offset, 0)
-    self.assertEqual(dto.servers[1].query_port_offset, 15)
-    dumped = dto.model_dump()
+    self.assertEqual(cmd.servers[0].query_port_offset, 0)
+    self.assertEqual(cmd.servers[1].query_port_offset, 15)
+    dumped = cmd.model_dump()
     self.assertEqual(dumped["servers"][0]["query_port_offset"], 0)
     self.assertEqual(dumped["servers"][1]["query_port_offset"], 15)
 
@@ -649,19 +649,19 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     restored = AppConfigModel.model_validate({"ssl_verify": True})
     self.assertTrue(restored.ssl_verify)
 
-  def test_settings_update_dto_ssl_verify_default_and_custom(self):
-    from app.web.schemas import SettingsUpdateDTO
-    dto_default = SettingsUpdateDTO()
-    self.assertFalse(dto_default.ssl_verify)
+  def test_save_settings_command_ssl_verify_default_and_custom(self):
+    from app.core.models import SaveSettingsCommand
+    cmd_default = SaveSettingsCommand()
+    self.assertFalse(cmd_default.ssl_verify)
 
-    dto_verified = SettingsUpdateDTO(ssl_verify=True)
-    self.assertTrue(dto_verified.ssl_verify)
+    cmd_verified = SaveSettingsCommand(ssl_verify=True)
+    self.assertTrue(cmd_verified.ssl_verify)
 
-    dumped = dto_verified.model_dump()
+    dumped = cmd_verified.model_dump()
     self.assertIn("ssl_verify", dumped)
     self.assertIs(dumped["ssl_verify"], True)
 
-    restored = SettingsUpdateDTO.model_validate({"ssl_verify": True})
+    restored = SaveSettingsCommand.model_validate({"ssl_verify": True})
     self.assertTrue(restored.ssl_verify)
 
 

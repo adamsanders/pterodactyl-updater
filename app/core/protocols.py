@@ -9,6 +9,8 @@ from app.core.models import (
     PlayerMetrics,
     PowerSignal,
     PowerState,
+    SaveServerCommand,
+    SaveSettingsCommand,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
@@ -21,6 +23,7 @@ from app.core.models import (
 
 
 
+@runtime_checkable
 class RuntimeStateStoreProtocol(Protocol):
 
   def get_global_state(self) -> AppRuntimeState:
@@ -86,6 +89,7 @@ class ConfigRepositoryGateway(Protocol):
 ConfigRepositoryProtocol = ConfigRepositoryGateway
 
 
+@runtime_checkable
 class CallTrackerProtocol(Protocol):
 
   def record(
@@ -383,6 +387,7 @@ class CountdownCoordinatorGateway(Protocol):
 CountdownCoordinatorProtocol = CountdownCoordinatorGateway
 
 
+@runtime_checkable
 class UpdateOrchestratorProtocol(Protocol):
 
   @property
@@ -410,3 +415,146 @@ class UpdateOrchestratorProtocol(Protocol):
       self, target_server_id: Optional[str] = None
   ) -> None:
     ...
+
+
+@runtime_checkable
+class ServerServiceProtocol(Protocol):
+
+  def save_settings(self, settings: SaveSettingsCommand) -> Any:
+    ...
+
+  def add_server(self, settings: SaveSettingsCommand) -> Any:
+    ...
+
+  def find_server_index(
+      self,
+      servers_or_identifier: Union[list[ServerModel], AppConfigModel, str, int],
+      identifier: Optional[Union[str, int]] = None,
+  ) -> Optional[int]:
+    ...
+
+  def delete_server(
+      self,
+      identifier: Union[str, int],
+      settings: Optional[SaveSettingsCommand] = None,
+  ) -> Any:
+    ...
+
+  async def rename_server(
+      self,
+      identifier: Union[str, int],
+      new_name: str,
+      settings: SaveSettingsCommand,
+  ) -> bool:
+    ...
+
+  async def send_power_action(
+      self, identifier: Union[str, int], action: Union[PowerSignal, str]
+  ) -> OperationResult:
+    ...
+
+  async def get_power_state(
+      self, identifier: Union[str, int]
+  ) -> PowerState:
+    ...
+
+  async def execute_graceful_restart(
+      self, identifier: Union[str, int]
+  ) -> OperationResult:
+    ...
+
+  async def test_webhook(self, identifier: Union[str, int]) -> str:
+    ...
+
+  def simulate_build_update(
+      self, identifier: Union[str, int], new_build_id: str
+  ) -> tuple[bool, Optional[str], Optional[str]]:
+    ...
+
+  async def trigger_simulated_build(
+      self, identifier: Union[str, int], new_build_id: str
+  ) -> str:
+    ...
+
+  def clear_simulated_build(
+      self, identifier: Optional[Union[str, int]] = None
+  ) -> Optional[str]:
+    ...
+
+  async def toggle_test_mode(self, enabled: bool) -> bool:
+    ...
+
+  async def toggle_ssl_verify(self, enabled: bool) -> bool:
+    ...
+
+  async def trigger_immediate_check(self) -> None:
+    ...
+
+  async def lookup_server_name(self, server_id: str) -> str:
+    ...
+
+  async def sync_server_name(
+      self,
+      identifier: Union[str, int],
+      server_id_override: Optional[str] = None,
+  ) -> str:
+    ...
+
+  def update_server_toggle(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> Any:
+    ...
+
+  async def toggle_server(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> ServerModel:
+    ...
+
+  async def save_single_server(
+      self,
+      identifier: Union[str, int],
+      data: Union[SaveServerCommand, dict],
+  ) -> ServerModel:
+    ...
+
+  async def detect_server_details(
+      self, server_id: str
+  ) -> DetectedServerDetails:
+    ...
+
+  async def search_steam_games(
+      self, query: str
+  ) -> list[SteamSearchResult]:
+    ...
+
+
+# Backward compatibility alias
+ServerServiceGateway = ServerServiceProtocol
+
+__all__ = [
+    "RuntimeStateStoreProtocol",
+    "ConfigRepositoryGateway",
+    "ConfigRepositoryProtocol",
+    "CallTrackerProtocol",
+    "PublicIpGateway",
+    "PterodactylPowerGateway",
+    "PterodactylInspectionGateway",
+    "PterodactylManagementGateway",
+    "PterodactylGateway",
+    "SteamGateway",
+    "PlayerQueryGateway",
+    "A2SGateway",
+    "NotificationGateway",
+    "CountdownGateway",
+    "CountdownManagerProtocol",
+    "PowerTrackerGateway",
+    "PowerStateTrackerProtocol",
+    "BuildSimulatorProtocol",
+    "WebhookPreviewStoreProtocol",
+    "StatusAggregationGateway",
+    "CountdownCoordinatorGateway",
+    "CountdownCoordinatorProtocol",
+    "UpdateOrchestratorProtocol",
+    "ServerServiceProtocol",
+    "ServerServiceGateway",
+]

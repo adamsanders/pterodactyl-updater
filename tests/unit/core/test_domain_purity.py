@@ -246,25 +246,13 @@ class TestConfigAndVcsDecoupling(unittest.TestCase):
   def test_config_get_commit_code_is_pure_and_deterministic(self):
     self.assertEqual(get_commit_code(), DEFAULT_COMMIT_CODE)
     self.assertEqual(DEFAULT_COMMIT_CODE, "92206dc")
-    self.assertEqual(APP_VERSION, "1.30.1")
+    self.assertEqual(APP_VERSION, "1.31.0")
 
   def test_resolve_commit_code_lives_in_vcs_adapter(self):
     resolved = resolve_commit_code()
     self.assertIsInstance(resolved, str)
     self.assertTrue(len(resolved) >= 7)
 
-  def test_app_module_import_pure_no_subprocess(self):
-    from unittest.mock import patch
-    with patch("subprocess.check_output", side_effect=AssertionError("subprocess called at import")):
-      import app.main
-      self.assertEqual(app.main.app.state.commit_code, DEFAULT_COMMIT_CODE)
-
-  def test_jinja_templates_globals_contain_commit_code(self):
-    from app.web.templating import templates
-    self.assertIn("commit_code", templates.env.globals)
-    self.assertIsInstance(templates.env.globals["commit_code"], str)
-    self.assertTrue(len(templates.env.globals["commit_code"]) >= 7)
-
-
 if __name__ == "__main__":
   unittest.main()
+

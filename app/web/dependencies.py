@@ -1,27 +1,31 @@
 from typing import Optional
 from fastapi import Request
 
-from app.adapters.a2s import A2SAdapter
+from app.composition import create_status_service
 from app.core.protocols import (
     A2SGateway,
     CallTrackerProtocol,
+    ConfigRepositoryGateway,
     ConfigRepositoryProtocol,
+    CountdownGateway,
     CountdownManagerProtocol,
+    PlayerQueryGateway,
     PowerTrackerGateway,
     PterodactylGateway,
     RuntimeStateStoreProtocol,
+    ServerServiceProtocol,
+    StatusAggregationGateway,
+    UpdateOrchestratorProtocol,
+    WebhookPreviewStoreProtocol,
 )
-from app.services.preview_store import WebhookPreviewStore
-from app.services.server_service import ServerService
-from app.services.status_service import StatusAggregationService
-from app.services.updater import UpdateOrchestrator
+from app.infrastructure import create_a2s_gateway
 
 
-def get_service(request: Request) -> ServerService:
+def get_service(request: Request) -> ServerServiceProtocol:
   return request.app.state.server_service
 
 
-def get_orchestrator(request: Request) -> UpdateOrchestrator:
+def get_orchestrator(request: Request) -> UpdateOrchestratorProtocol:
   return request.app.state.orchestrator
 
 
@@ -37,13 +41,14 @@ def get_countdown(request: Request) -> CountdownManagerProtocol:
   return request.app.state.countdown
 
 
-def get_preview_store(request: Request) -> WebhookPreviewStore:
+def get_preview_store(request: Request) -> WebhookPreviewStoreProtocol:
   return request.app.state.preview_store
 
 
-def get_a2s(request: Request) -> A2SGateway:
+def get_a2s(request: Request) -> PlayerQueryGateway:
   if not hasattr(request.app.state, "a2s"):
-    request.app.state.a2s = A2SAdapter()
+    tracker = getattr(request.app.state, "call_tracker", None)
+    request.app.state.a2s = create_a2s_gateway(call_tracker=tracker)
   return request.app.state.a2s
 
 
@@ -59,9 +64,9 @@ def get_power_tracker(request: Request) -> Optional[PowerTrackerGateway]:
   return getattr(request.app.state, "power_tracker", None)
 
 
-def get_status_service(request: Request) -> StatusAggregationService:
+def get_status_service(request: Request) -> StatusAggregationGateway:
   if not hasattr(request.app.state, "status_service"):
-    request.app.state.status_service = StatusAggregationService(
+    request.app.state.status_service = create_status_service(
         repository=get_repo(request),
         ptero=get_ptero(request),
         countdown=get_countdown(request),
@@ -74,3 +79,17 @@ def get_status_service(request: Request) -> StatusAggregationService:
     )
   return request.app.state.status_service
 
+
+__all__ = [
+    "get_service",
+    "get_orchestrator",
+    "get_repo",
+    "get_ptero",
+    "get_countdown",
+    "get_preview_store",
+    "get_a2s",
+    "get_call_tracker",
+    "get_runtime_state",
+    "get_power_tracker",
+    "get_status_service",
+]

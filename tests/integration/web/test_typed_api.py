@@ -3,8 +3,23 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.core.exceptions import ServerNotFoundError
-from app.core.models import AppConfigModel, NotificationPreview, ServerModel
+from app.core.models import (
+    AppConfigModel,
+    DetectedServerDetails,
+    NotificationPreview,
+    ServerModel,
+    SteamSearchResult,
+)
 from app.services.preview_store import WebhookPreviewStore
+from app.web.schemas import (
+    CheckNowResponse,
+    ClearBuildResponse,
+    LookupNameResponse,
+    PowerActionResponse,
+    SimulateBuildResponse,
+    SingleServerSaveResponse,
+    SyncNameResponse,
+)
 from app.main import app
 
 
@@ -225,6 +240,88 @@ class TestTypedRouteEndpoints(unittest.TestCase):
     self.assertEqual(res.json(), {"status": "ok", "field": "auto_restart", "value": True})
     self.assertEqual(self.service.update_server_toggle.call_count, 2)
 
+  def test_fastapi_route_response_model_annotations(self):
+    route_models = {}
+    for r in app.routes:
+      if hasattr(r, "path") and hasattr(r, "response_model"):
+        methods = tuple(r.methods) if hasattr(r, "methods") else ()
+        route_models[(r.path, methods)] = r.response_model
+
+    self.assertIn(("/api/servers/detect-details", ("GET",)), route_models)
+    self.assertIs(route_models[("/api/servers/detect-details", ("GET",))], DetectedServerDetails)
+
+    self.assertIn(("/api/servers/lookup-name", ("GET",)), route_models)
+    self.assertIs(route_models[("/api/servers/lookup-name", ("GET",))], LookupNameResponse)
+
+    self.assertIn(("/api/steam/search", ("GET",)), route_models)
+    self.assertEqual(route_models[("/api/steam/search", ("GET",))], list[SteamSearchResult])
+
+    self.assertIn(("/api/servers/{server_id}/power/{action}", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/servers/{server_id}/power/{action}", ("POST",))], PowerActionResponse)
+
+    self.assertIn(("/api/check-now", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/check-now", ("POST",))], CheckNowResponse)
+
+    self.assertIn(("/api/test/simulate-build", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/test/simulate-build", ("POST",))], SimulateBuildResponse)
+
+    self.assertIn(("/api/test/clear-build", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/test/clear-build", ("POST",))], ClearBuildResponse)
+
+    self.assertIn(("/api/servers/{server_id}/sync-name", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/servers/{server_id}/sync-name", ("POST",))], SyncNameResponse)
+
+    self.assertIn(("/api/servers/{server_id}/save", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/servers/{server_id}/save", ("POST",))], SingleServerSaveResponse)
+
+  def test_endpoint_responses_satisfy_schemas(self):
+    self.repo.load.return_value = AppConfigModel(
+        panel_url="https://panel.test",
+        api_key="key",
+        servers=[ServerModel(server_id="srv-1", name="Test Server")],
+    )
+    self.service.find_server_index.return_value = 0
+    self.service.lookup_server_name = AsyncMock(return_value="Terraria Server")
+    self.service.detect_server_details = AsyncMock(
+        return_value=DetectedServerDetails(name="Terraria", app_id="105600", manifest_path="appmanifest_105600.acf", detected=True)
+    )
+    self.service.search_steam_games = AsyncMock(
+        return_value=[SteamSearchResult(app_id="105600", name="Terraria", type="game")]
+    )
+    self.service.send_power_action = AsyncMock(return_value=(True, None))
+
+    # 1. Lookup Name
+    res = self.client.get("/api/servers/lookup-name?server_id=srv-1")
+    self.assertEqual(res.status_code, 200)
+    validated_lookup = LookupNameResponse.model_validate(res.json())
+    self.assertEqual(validated_lookup.name, "Terraria Server")
+    self.assertEqual(validated_lookup.status, "ok")
+
+    # 2. Detect Details
+    res = self.client.get("/api/servers/detect-details?server_id=srv-1")
+    self.assertEqual(res.status_code, 200)
+    details_data = res.json().get("details")
+    validated_details = DetectedServerDetails.model_validate(details_data)
+    self.assertEqual(validated_details.app_id, "105600")
+
+    # 3. Steam Search
+    res = self.client.get("/api/steam/search?q=terraria")
+    self.assertEqual(res.status_code, 200)
+    results_data = res.json().get("results")
+    self.assertIsInstance(results_data, list)
+    validated_search = [SteamSearchResult.model_validate(item) for item in results_data]
+    self.assertEqual(len(validated_search), 1)
+    self.assertEqual(validated_search[0].app_id, "105600")
+
+    # 4. Power Action
+    res = self.client.post("/api/servers/srv-1/power/restart")
+    self.assertEqual(res.status_code, 200)
+    validated_power = PowerActionResponse.model_validate(res.json())
+    self.assertEqual(validated_power.status, "ok")
+    self.assertEqual(validated_power.server_id, "srv-1")
+    self.assertEqual(validated_power.action, "restart")
+
 
 if __name__ == "__main__":
   unittest.main()
+

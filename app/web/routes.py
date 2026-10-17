@@ -20,10 +20,10 @@ from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
     RuntimeStateStoreProtocol,
+    ServerServiceProtocol,
+    StatusAggregationGateway,
+    WebhookPreviewStoreProtocol,
 )
-from app.services.preview_store import WebhookPreviewStore
-from app.services.server_service import ServerService
-from app.services.status_service import StatusAggregationService
 from app.web.dependencies import (
     get_a2s,
     get_call_tracker,
@@ -72,7 +72,7 @@ async def dashboard(
     request: Request,
     repo: ConfigRepositoryProtocol = Depends(get_repo),
     countdown: CountdownManagerProtocol = Depends(get_countdown),
-    preview_store: Optional[WebhookPreviewStore] = Depends(get_preview_store),
+    preview_store: Optional[WebhookPreviewStoreProtocol] = Depends(get_preview_store),
     runtime_state: Optional[RuntimeStateStoreProtocol] = Depends(get_runtime_state),
 ):
   cfg = repo.load()
@@ -141,7 +141,7 @@ async def clear_telemetry(
 
 @router.get("/api/status")
 async def get_status_api(
-    status_service: StatusAggregationService = Depends(get_status_service),
+    status_service: StatusAggregationGateway = Depends(get_status_service),
 ):
   snapshot = await status_service.get_status_snapshot()
   if snapshot.get("preview"):
@@ -165,7 +165,7 @@ async def get_status_api(
 @router.post("/toggle-test-mode", response_model=ToggleTestModeResponse)
 async def toggle_test_mode(
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> ToggleTestModeResponse:
   try:
     data = await request.json()
@@ -181,7 +181,7 @@ async def toggle_test_mode(
 @router.post("/toggle-ssl-verify", response_model=ToggleSslVerifyResponse)
 async def toggle_ssl_verify(
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> ToggleSslVerifyResponse:
   try:
     data = await request.json()
@@ -196,7 +196,7 @@ async def toggle_ssl_verify(
 @router.post("/api/test/simulate-build", response_model=SimulateBuildResponse)
 async def simulate_build(
     payload: SimulateBuildRequest,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> SimulateBuildResponse:
   server_ident = payload.server_id if payload.server_id is not None else payload.server_idx
   build_id = str(payload.build_id).strip()
@@ -214,7 +214,7 @@ async def simulate_build(
 async def clear_simulated_build(
     payload: Optional[ClearBuildRequest] = None,
     server_id: Optional[str] = None,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> ClearBuildResponse:
   target_id = (payload.server_id if payload and payload.server_id else None) or server_id
   cleared_id = service.clear_simulated_build(target_id)
@@ -226,7 +226,7 @@ async def clear_simulated_build(
 
 @router.post("/api/test/clear-preview")
 async def clear_preview(
-    previews: WebhookPreviewStore = Depends(get_preview_store),
+    previews: WebhookPreviewStoreProtocol = Depends(get_preview_store),
 ):
   previews.clear()
   return JSONResponse({"status": "ok"})
@@ -235,7 +235,7 @@ async def clear_preview(
 @router.get("/api/servers/lookup-name", response_model=LookupNameResponse)
 async def lookup_server_name(
     server_id: str = "",
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ):
   name = await service.lookup_server_name(server_id)
   return JSONResponse({"status": "ok", "name": name})
@@ -244,7 +244,7 @@ async def lookup_server_name(
 @router.get("/api/servers/detect-details", response_model=DetectedServerDetails)
 async def detect_server_details(
     server_id: str = "",
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ):
   details = await service.detect_server_details(server_id)
   data = details.model_dump() if hasattr(details, "model_dump") else details
@@ -254,7 +254,7 @@ async def detect_server_details(
 @router.get("/api/steam/search", response_model=list[SteamSearchResult])
 async def search_steam_games(
     q: str = "",
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ):
   results = await service.search_steam_games(q)
   serialized = [
@@ -271,7 +271,7 @@ async def search_steam_games(
 async def sync_server_name(
     server_id: str,
     payload: Optional[SyncNameRequest] = None,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> SyncNameResponse:
   sid_override = payload.server_id if payload and payload.server_id else None
   name = await service.sync_server_name(
@@ -290,7 +290,7 @@ async def sync_server_name(
 async def toggle_server_setting(
     server_id: str,
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ):
   body = await request.json()
   field = body.get("field", "")
@@ -314,7 +314,7 @@ async def toggle_server_setting(
 async def save_single_server_route(
     server_id: str,
     payload: SingleServerSaveRequest,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> SingleServerSaveResponse:
   updated = await service.save_single_server(server_id, payload.to_command())
   return SingleServerSaveResponse(
@@ -328,7 +328,7 @@ async def save_single_server_route(
 async def server_power_action(
     server_id: str,
     action: str,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   cfg = repo.load()
@@ -361,7 +361,7 @@ async def server_power_action(
 @router.post("/save")
 async def save_settings(
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   command = await SettingsFormData.to_command(
@@ -376,7 +376,7 @@ async def save_settings(
 @router.post("/add-server")
 async def add_server(
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   command = await SettingsFormData.to_command(
@@ -392,7 +392,7 @@ async def add_server(
 async def delete_server(
     server_id: str,
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   command = await SettingsFormData.to_command(
@@ -408,7 +408,7 @@ async def delete_server(
 async def rename_server(
     server_id: str,
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   raw_form = await request.form()
@@ -435,7 +435,7 @@ async def rename_server(
 async def api_test_webhook(
     server_id: Optional[str] = None,
     payload: Optional[TestWebhookRequest] = None,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ) -> TestWebhookResponse:
   target_id = server_id or (payload.server_id if payload else None) or (payload.server_idx if payload else None) or 0
@@ -459,7 +459,7 @@ async def api_test_webhook(
 async def test_webhook(
     server_id: str,
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
   servers = repo.load().servers
@@ -474,7 +474,7 @@ async def test_webhook(
 
 @router.post("/api/check-now", response_model=CheckNowResponse)
 async def api_check_now(
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ) -> CheckNowResponse:
   await service.trigger_immediate_check()
   return CheckNowResponse(status="ok", message="Update check initiated")
@@ -483,7 +483,7 @@ async def api_check_now(
 @router.post("/check-now")
 async def check_now(
     request: Request,
-    service: ServerService = Depends(get_service),
+    service: ServerServiceProtocol = Depends(get_service),
 ):
   await service.trigger_immediate_check()
   if request.headers.get("accept") == "application/json":

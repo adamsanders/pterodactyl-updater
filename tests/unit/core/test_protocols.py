@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 import httpx
@@ -28,6 +29,7 @@ from app.core.protocols import (
     StatusAggregationGateway,
     SteamGateway,
 )
+from app.core.models import SteamSearchResult
 from app.services.countdown import CountdownManager
 from app.services.status_service import StatusAggregationService
 
@@ -202,54 +204,43 @@ class TestProtocolConformance(unittest.TestCase):
 
     self.assertNotIsInstance(IncompleteStatusAggregation(), StatusAggregationGateway)
 
-  def test_simulated_steam_adapter_resolves_route_search(self):
-    from fastapi.testclient import TestClient
-    from app.main import app
-    from app.services.server_service import ServerService
-    from app.core.models import AppConfigModel
-
+  def test_simulated_steam_adapter_search_games_delegation(self):
     mock_real = AsyncMock()
-    mock_real.search_games.return_value = [{"app_id": "2278520", "name": "Enshrouded"}]
+    expected = [SteamSearchResult(app_id="2278520", name="Enshrouded")]
+    mock_real.search_games.return_value = expected
     mock_store = MagicMock()
     mock_repo = MagicMock()
-    mock_repo.load.return_value = AppConfigModel()
 
     simulated = SimulatedSteamAdapter(
         real_steam=mock_real,
         simulator_store=mock_store,
         repository=mock_repo,
     )
+    results = asyncio.run(simulated.search_games("enshrouded"))
+    self.assertEqual(results, expected)
+    mock_real.search_games.assert_called_once_with("enshrouded")
 
-    old_steam = getattr(app.state, "steam", None)
-    old_server_service = getattr(app.state, "server_service", None)
-    try:
-      app.state.steam = simulated
-      app.state.server_service = ServerService(
-          repository=mock_repo,
-          ptero=AsyncMock(),
-          steam=simulated,
-          announcements=MagicMock(),
-          countdown=MagicMock(),
-          simulator_store=mock_store,
-      )
+  def test_server_service_conforms_to_server_service_protocol(self):
+    from app.core.protocols import ServerServiceGateway, ServerServiceProtocol
+    from app.services.server_service import ServerService
 
-      client = TestClient(app, raise_server_exceptions=True)
-      res = client.get("/api/steam/search?q=enshrouded")
-      self.assertEqual(res.status_code, 200)
-      data = res.json()
-      self.assertEqual(data["status"], "ok")
-      self.assertEqual(data["results"], [{"app_id": "2278520", "name": "Enshrouded"}])
-    finally:
-      if old_steam is not None:
-        app.state.steam = old_steam
-      elif hasattr(app.state, "steam"):
-        delattr(app.state, "steam")
-      if old_server_service is not None:
-        app.state.server_service = old_server_service
-      elif hasattr(app.state, "server_service"):
-        delattr(app.state, "server_service")
+    mock_repo = MagicMock()
+    mock_ptero = AsyncMock()
+    mock_steam = AsyncMock()
+    mock_sim_store = MagicMock()
+    mock_countdown = MagicMock()
 
+    service = ServerService(
+        repository=mock_repo,
+        ptero=mock_ptero,
+        steam=mock_steam,
+        simulator_store=mock_sim_store,
+        countdown=mock_countdown,
+    )
+    self.assertIsInstance(service, ServerServiceProtocol)
+    self.assertIsInstance(service, ServerServiceGateway)
 
 
 if __name__ == "__main__":
   unittest.main()
+

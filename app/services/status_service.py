@@ -278,16 +278,26 @@ class StatusAggregationService:
     preview_data = None
     active_preview = self.preview_store.get_preview()
     if active_preview:
-      embed_payload = active_preview.embed
+      if isinstance(active_preview, dict):
+        server_name = active_preview.get("server_name")
+        message = active_preview.get("message")
+        embed_payload = active_preview.get("embed")
+        timestamp = active_preview.get("timestamp")
+      else:
+        server_name = getattr(active_preview, "server_name", None)
+        message = getattr(active_preview, "message", None)
+        embed_payload = getattr(active_preview, "embed", None)
+        timestamp = getattr(active_preview, "timestamp", None)
+
       if hasattr(embed_payload, "model_dump"):
         embed_payload = embed_payload.model_dump()
       elif hasattr(embed_payload, "to_embed"):
         embed_payload = embed_payload.to_embed()
       preview_data = {
-          "server_name": active_preview.server_name,
-          "message": active_preview.message,
+          "server_name": server_name,
+          "message": message,
           "embed": embed_payload,
-          "timestamp": active_preview.timestamp,
+          "timestamp": timestamp,
       }
       # If legacy markdown_formatter was explicitly supplied, preserve formatted fields
       if self.markdown_formatter is not None:
@@ -301,7 +311,7 @@ class StatusAggregationService:
                 else ""
             )
         )
-        preview_data["formatted_message"] = str(formatter(active_preview.message))
+        preview_data["formatted_message"] = str(formatter(message or ""))
         preview_data["formatted_description"] = (
             str(formatter(embed_desc)) if embed_desc else ""
         )

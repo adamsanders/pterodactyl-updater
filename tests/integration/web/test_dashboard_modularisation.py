@@ -4,8 +4,13 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.core.config import APP_VERSION, COMMIT_CODE
-from app.core.models import AppConfigModel, ServerModel
-from app.web.schemas import WebhookPreview
+from app.core.models import (
+    AppConfigModel,
+    ServerModel,
+    ServerRuntimeState,
+    ServerUpdateStatus,
+)
+from app.web.schemas import ServerCardViewModel, WebhookPreview
 from app.main import app
 from app.web.templating import templates
 
@@ -182,9 +187,9 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertLess(res.text.index('id="btn-check-now"'), res.text.index('id="main-form"'))
 
     # Footer elements
-    self.assertEqual(APP_VERSION, "1.30.1")
+    self.assertEqual(APP_VERSION, "1.31.0")
     self.assertIn(f"v{APP_VERSION}", res.text)
-    self.assertIn("v1.30.1", res.text)
+    self.assertIn("v1.31.0", res.text)
     self.assertIn(f"commit {COMMIT_CODE}", res.text)
 
     # Modals
@@ -234,9 +239,9 @@ class TestDashboardModularisation(unittest.TestCase):
         app_version=APP_VERSION,
         commit_code=COMMIT_CODE,
     )
-    self.assertEqual(APP_VERSION, "1.30.1")
+    self.assertEqual(APP_VERSION, "1.31.0")
     self.assertIn(f"v{APP_VERSION}", html_footer)
-    self.assertIn("v1.30.1", html_footer)
+    self.assertIn("v1.31.0", html_footer)
     self.assertIn(f"commit {COMMIT_CODE}", html_footer)
 
     # 5. Modals partial
@@ -347,6 +352,80 @@ class TestDashboardModularisation(unittest.TestCase):
     html_dash = tpl_dash.render(version="9.9.9")
     self.assertIn("v9.9.9", html_dash)
 
+  def test_fastapi_app_has_version(self):
+    self.assertEqual(app.version, APP_VERSION)
+
+  def test_status_api_contains_version_and_commit(self):
+    res_api = self.client.get("/api/status")
+    self.assertEqual(res_api.status_code, 200)
+    data = res_api.json()
+    self.assertEqual(data.get("app_version"), APP_VERSION)
+    self.assertEqual(data.get("commit_code"), COMMIT_CODE)
+
+
+  def test_app_module_import_pure_no_subprocess(self):
+    from unittest.mock import patch
+    from app.core.config import DEFAULT_COMMIT_CODE
+    with patch("subprocess.check_output", side_effect=AssertionError("subprocess called at import")):
+      import app.main
+      self.assertEqual(app.main.app.state.commit_code, DEFAULT_COMMIT_CODE)
+
+  def test_jinja_templates_globals_contain_commit_code(self):
+    self.assertIn("commit_code", templates.env.globals)
+    self.assertIsInstance(templates.env.globals["commit_code"], str)
+    self.assertTrue(len(templates.env.globals["commit_code"]) >= 7)
+
+
+  def test_server_card_template_renders_directly_with_view_model(self):
+    vm = ServerCardViewModel(
+        card_index=0,
+        server_id="srv-1",
+        name="Solo ViewModel Server",
+        status="Update Available",
+        current_build="100",
+        latest_build="200",
+        countdown_remaining=120,
+        countdown_target=1770000120,
+    )
+    tpl = templates.get_template("components/_server_card.html")
+    html = tpl.render(srv=vm)
+    self.assertIn("Solo ViewModel Server", html)
+    self.assertIn("Update Available", html)
+    self.assertIn("100 &rarr; 200", html)
+    self.assertIn("2m 0s", html)
+
+  def test_global_status_template_renders_live_last_check(self):
+    cfg = AppConfigModel()
+    rendered = templates.get_template("components/_global_status.html").render({
+        "cfg": cfg,
+        "last_check": "2026-10-16 19:30:00",
+    })
+    self.assertIn("2026-10-16 19:30:00", rendered)
+    self.assertNotIn(">Never<", rendered)
+
+  def test_server_card_template_renders_builds_from_runtime_states(self):
+    srv = ServerModel(server_id="srv-val", name="Valheim")
+    cfg = AppConfigModel(servers=[srv])
+    runtime_states = {
+        "srv-val": ServerRuntimeState(
+            server_id="srv-val",
+            current_build="999000",
+            latest_build="999000",
+            last_status=ServerUpdateStatus.UP_TO_DATE,
+        )
+    }
+    rendered = templates.get_template("components/_server_card.html").render({
+        "cfg": cfg,
+        "srv": srv,
+        "idx": 0,
+        "srv_id": "srv-val",
+        "runtime_states": runtime_states,
+    })
+    self.assertIn("Build:", rendered)
+    self.assertIn("999000", rendered)
+
 
 if __name__ == "__main__":
   unittest.main()
+
+

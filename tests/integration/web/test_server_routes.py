@@ -269,5 +269,38 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.assertFalse(dto.ssl_verify)
 
 
+  def test_simulated_steam_adapter_resolves_route_search(self):
+    from app.adapters.simulated_steam import SimulatedSteamAdapter
+    from app.services.server_service import ServerService
+
+    mock_real = AsyncMock()
+    mock_real.search_games.return_value = [{"app_id": "2278520", "name": "Enshrouded"}]
+    mock_store = MagicMock()
+    mock_repo = MagicMock()
+    mock_repo.load.return_value = AppConfigModel()
+
+    simulated = SimulatedSteamAdapter(
+        real_steam=mock_real,
+        simulator_store=mock_store,
+        repository=mock_repo,
+    )
+    real_service = ServerService(
+        repository=mock_repo,
+        ptero=AsyncMock(),
+        steam=simulated,
+        announcements=MagicMock(),
+        countdown=MagicMock(),
+        simulator_store=mock_store,
+    )
+    self.app.dependency_overrides[get_service] = lambda: real_service
+
+    res = self.client.get("/api/steam/search?q=enshrouded")
+    self.assertEqual(res.status_code, 200)
+    data = res.json()
+    self.assertEqual(data["status"], "ok")
+    self.assertEqual(data["results"], [{"app_id": "2278520", "name": "Enshrouded"}])
+
+
 if __name__ == "__main__":
   unittest.main()
+

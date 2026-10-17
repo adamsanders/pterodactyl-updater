@@ -1,7 +1,6 @@
 import unittest
 import warnings
-from unittest.mock import AsyncMock, MagicMock
-from fastapi.testclient import TestClient
+from unittest.mock import MagicMock
 
 from app.core.models import (
     AppConfigModel,
@@ -12,7 +11,6 @@ from app.core.models import (
     ServerUpdateStatus,
     SteamSearchResult,
 )
-from app.main import app
 from app.web.schemas import (
     CheckNowResponse,
     ClearBuildResponse,
@@ -218,24 +216,6 @@ class TestPresentationViewModels(unittest.TestCase):
     self.assertEqual(dvm.servers[0].latest_build, "1000")
     self.assertEqual(dvm.servers[0].status, "Update Available")
 
-  def test_server_card_template_renders_directly_with_view_model(self):
-    from app.web.templating import templates
-    vm = ServerCardViewModel(
-        card_index=0,
-        server_id="srv-1",
-        name="Solo ViewModel Server",
-        status="Update Available",
-        current_build="100",
-        latest_build="200",
-        countdown_remaining=120,
-        countdown_target=1770000120,
-    )
-    tpl = templates.get_template("components/_server_card.html")
-    html = tpl.render(srv=vm)
-    self.assertIn("Solo ViewModel Server", html)
-    self.assertIn("Update Available", html)
-    self.assertIn("100 &rarr; 200", html)
-    self.assertIn("2m 0s", html)
 
 
 class TestTypedRouteSchemas(unittest.TestCase):
@@ -269,6 +249,33 @@ class TestTypedRouteSchemas(unittest.TestCase):
     self.assertEqual(req.manifest_path, "steamapps/manifest.acf")
     self.assertEqual(req.query_port_offset, 1)
 
+  def test_settings_update_dto_preserves_query_port_offset(self):
+    dto = SettingsUpdateDTO(
+        servers=[
+            ServerModel(name="Srv 1", query_port_offset=0),
+            ServerModel(name="Srv 2", query_port_offset=15),
+        ]
+    )
+    self.assertEqual(dto.servers[0].query_port_offset, 0)
+    self.assertEqual(dto.servers[1].query_port_offset, 15)
+    dumped = dto.model_dump()
+    self.assertEqual(dumped["servers"][0]["query_port_offset"], 0)
+    self.assertEqual(dumped["servers"][1]["query_port_offset"], 15)
+
+  def test_settings_update_dto_ssl_verify_default_and_custom(self):
+    dto_default = SettingsUpdateDTO()
+    self.assertFalse(dto_default.ssl_verify)
+
+    dto_verified = SettingsUpdateDTO(ssl_verify=True)
+    self.assertTrue(dto_verified.ssl_verify)
+
+    dumped = dto_verified.model_dump()
+    self.assertIn("ssl_verify", dumped)
+    self.assertIs(dumped["ssl_verify"], True)
+
+    restored = SettingsUpdateDTO.model_validate({"ssl_verify": True})
+    self.assertTrue(restored.ssl_verify)
+
 
 class TestWebDTORelocationAndReExports(unittest.TestCase):
   """Verifies web DTOs live in app.web.schemas and inherit from domain commands, with no circular imports in app.core.models."""
@@ -300,77 +307,10 @@ class TestWebDTORelocationAndReExports(unittest.TestCase):
     self.assertNotIn("SettingsUpdateDTO", dir_entries)
 
 
-class TestTemplateRendering(unittest.TestCase):
-
-  def test_global_status_template_renders_live_last_check(self):
-    from app.web.templating import templates
-    cfg = AppConfigModel()
-    rendered = templates.get_template("components/_global_status.html").render({
-        "cfg": cfg,
-        "last_check": "2026-10-16 19:30:00",
-    })
-    self.assertIn("2026-10-16 19:30:00", rendered)
-    self.assertNotIn(">Never<", rendered)
-
-  def test_server_card_template_renders_builds_from_runtime_states(self):
-    from app.web.templating import templates
-    srv = ServerModel(server_id="srv-val", name="Valheim")
-    cfg = AppConfigModel(servers=[srv])
-    runtime_states = {
-        "srv-val": ServerRuntimeState(
-            server_id="srv-val",
-            current_build="999000",
-            latest_build="999000",
-            last_status=ServerUpdateStatus.UP_TO_DATE,
-        )
-    }
-    rendered = templates.get_template("components/_server_card.html").render({
-        "cfg": cfg,
-        "srv": srv,
-        "idx": 0,
-        "srv_id": "srv-val",
-        "runtime_states": runtime_states,
-    })
-    self.assertIn("Build:", rendered)
-    self.assertIn("999000", rendered)
 
 
 class TestStronglyTypedRouteResponses(unittest.TestCase):
-  """Unit tests verifying strongly typed route response schemas and annotations."""
-
-  def test_fastapi_route_response_model_annotations(self):
-    route_models = {}
-    for r in app.routes:
-      if hasattr(r, "path") and hasattr(r, "response_model"):
-        methods = tuple(r.methods) if hasattr(r, "methods") else ()
-        route_models[(r.path, methods)] = r.response_model
-
-    self.assertIn(("/api/servers/detect-details", ("GET",)), route_models)
-    self.assertIs(route_models[("/api/servers/detect-details", ("GET",))], DetectedServerDetails)
-
-    self.assertIn(("/api/servers/lookup-name", ("GET",)), route_models)
-    self.assertIs(route_models[("/api/servers/lookup-name", ("GET",))], LookupNameResponse)
-
-    self.assertIn(("/api/steam/search", ("GET",)), route_models)
-    self.assertEqual(route_models[("/api/steam/search", ("GET",))], list[SteamSearchResult])
-
-    self.assertIn(("/api/servers/{server_id}/power/{action}", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/servers/{server_id}/power/{action}", ("POST",))], PowerActionResponse)
-
-    self.assertIn(("/api/check-now", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/check-now", ("POST",))], CheckNowResponse)
-
-    self.assertIn(("/api/test/simulate-build", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/test/simulate-build", ("POST",))], SimulateBuildResponse)
-
-    self.assertIn(("/api/test/clear-build", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/test/clear-build", ("POST",))], ClearBuildResponse)
-
-    self.assertIn(("/api/servers/{server_id}/sync-name", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/servers/{server_id}/sync-name", ("POST",))], SyncNameResponse)
-
-    self.assertIn(("/api/servers/{server_id}/save", ("POST",)), route_models)
-    self.assertIs(route_models[("/api/servers/{server_id}/save", ("POST",))], SingleServerSaveResponse)
+  """Unit tests verifying strongly typed route response schemas."""
 
   def test_lookup_name_response_model(self):
     resp = LookupNameResponse(name="Valheim Dedicated Server")
@@ -392,57 +332,6 @@ class TestStronglyTypedRouteResponses(unittest.TestCase):
     self.assertEqual(resp.server_id, "srv-valheim")
     self.assertEqual(resp.action, "restart")
     self.assertEqual(resp.effective_state, "starting")
-
-  def test_endpoint_responses_satisfy_schemas(self):
-    app.state.repo = MagicMock()
-    app.state.repo.load.return_value = AppConfigModel(
-        panel_url="https://panel.test",
-        api_key="key",
-        servers=[ServerModel(server_id="srv-1", name="Test Server")],
-    )
-    app.state.server_service = MagicMock()
-    app.state.server_service.find_server_index.return_value = 0
-    app.state.server_service.lookup_server_name = AsyncMock(return_value="Terraria Server")
-    app.state.server_service.detect_server_details = AsyncMock(
-        return_value=DetectedServerDetails(name="Terraria", app_id="105600", manifest_path="appmanifest_105600.acf", detected=True)
-    )
-    app.state.server_service.search_steam_games = AsyncMock(
-        return_value=[SteamSearchResult(app_id="105600", name="Terraria", type="game")]
-    )
-    app.state.server_service.send_power_action = AsyncMock(return_value=(True, None))
-
-    client = TestClient(app, raise_server_exceptions=True)
-
-    # 1. Lookup Name
-    res = client.get("/api/servers/lookup-name?server_id=srv-1")
-    self.assertEqual(res.status_code, 200)
-    validated_lookup = LookupNameResponse.model_validate(res.json())
-    self.assertEqual(validated_lookup.name, "Terraria Server")
-    self.assertEqual(validated_lookup.status, "ok")
-
-    # 2. Detect Details
-    res = client.get("/api/servers/detect-details?server_id=srv-1")
-    self.assertEqual(res.status_code, 200)
-    details_data = res.json().get("details")
-    validated_details = DetectedServerDetails.model_validate(details_data)
-    self.assertEqual(validated_details.app_id, "105600")
-
-    # 3. Steam Search
-    res = client.get("/api/steam/search?q=terraria")
-    self.assertEqual(res.status_code, 200)
-    results_data = res.json().get("results")
-    self.assertIsInstance(results_data, list)
-    validated_search = [SteamSearchResult.model_validate(item) for item in results_data]
-    self.assertEqual(len(validated_search), 1)
-    self.assertEqual(validated_search[0].app_id, "105600")
-
-    # 4. Power Action
-    res = client.post("/api/servers/srv-1/power/restart")
-    self.assertEqual(res.status_code, 200)
-    validated_power = PowerActionResponse.model_validate(res.json())
-    self.assertEqual(validated_power.status, "ok")
-    self.assertEqual(validated_power.server_id, "srv-1")
-    self.assertEqual(validated_power.action, "restart")
 
   def test_milestone13_viewmodel_properties_completeness(self):
     vm_matching = ServerCardViewModel(
