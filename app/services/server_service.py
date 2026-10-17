@@ -150,7 +150,7 @@ class ServerService:
 
     server = cfg.servers[idx]
     _, status_msg = await self.announcements.send_test_alert(server)
-    server.last_status = status_msg
+    object.__setattr__(server, "_ephemeral_last_status", status_msg)
     if self.runtime_state:
       self.runtime_state.update_server_state(
           server.server_id, last_status=status_msg
@@ -195,7 +195,7 @@ class ServerService:
       for srv in cfg.servers:
         if self.countdown.is_running(srv.server_id):
           self.countdown.stop(srv.server_id)
-          srv.last_status = ServerUpdateStatus.IDLE
+          object.__setattr__(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
           if self.runtime_state:
             self.runtime_state.update_server_state(
                 srv.server_id,

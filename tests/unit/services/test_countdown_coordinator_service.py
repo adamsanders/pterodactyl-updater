@@ -50,7 +50,6 @@ class TestCountdownCoordinatorService(unittest.IsolatedAsyncioTestCase):
 
     self.assertFalse(self.countdown.is_running("srv-1"))
     self.assertNotIn("srv-1", self.restarted_builds)
-    self.assertIn("Manual restart", server.last_status)
     st = self.runtime_state.get_server_state("srv-1")
     self.assertIn("Manual restart", st.last_status)
 

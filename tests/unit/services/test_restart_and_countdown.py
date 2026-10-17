@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.core.models import AppConfigModel, ServerModel
 from app.services.countdown import CountdownManager
 from app.services.preview_store import WebhookPreviewStore
+from app.services.runtime_state import RuntimeStateStore
 from app.services.updater import UpdateOrchestrator
 from app.adapters.pterodactyl import PterodactylAdapter
 
@@ -171,7 +172,10 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(sum(slept_durations), 900)
 
     # Server status must indicate restart
-    self.assertEqual(server.last_status, "Restarting server via Pterodactyl API...")
+    self.assertEqual(
+        getattr(server, "_ephemeral_last_status", None),
+        "Restarting server via Pterodactyl API...",
+    )
 
     # Pterodactyl API trigger_restart must be called with the server credentials
     self.ptero.trigger_restart.assert_called_once_with(
@@ -206,7 +210,8 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
     # Should NOT start countdown
     self.assertFalse(self.countdown.is_running("srv123"))
     self.assertEqual(
-        server.last_status, "Restart dispatched — waiting for build update"
+        getattr(server, "_ephemeral_last_status", None),
+        "Restart dispatched — waiting for build update",
     )
 
   async def test_does_not_start_countdown_if_server_is_offline(self):
@@ -228,7 +233,10 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
 
     # Offline servers must NOT start a countdown
     self.assertFalse(self.countdown.is_running("srv123"))
-    self.assertEqual(server.last_status, "Update Available")
+    self.assertEqual(
+        getattr(server, "_ephemeral_last_status", None),
+        "Update Available",
+    )
 
   async def test_clears_restarted_build_when_server_becomes_up_to_date(self):
     server = ServerModel(
@@ -249,7 +257,10 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
     )
 
     self.assertNotIn("srv123", self.orchestrator._restarted_builds)
-    self.assertEqual(server.last_status, "Up to date")
+    self.assertEqual(
+        getattr(server, "_ephemeral_last_status", None),
+        "Up to date",
+    )
 
   async def test_broadcast_warning_patchnotes_only_on_first_warning(self):
     cfg = AppConfigModel(
@@ -323,7 +334,10 @@ class TestUpdateOrchestratorRestart(unittest.IsolatedAsyncioTestCase):
 
     self.assertFalse(self.countdown.is_running("srv-pal"))
     self.assertNotIn("srv-pal", self.orchestrator._restarted_builds)
-    self.assertIn("Manual offline detected", server.last_status)
+    self.assertIn(
+        "Manual offline detected",
+        getattr(server, "_ephemeral_last_status", ""),
+    )
     self.repo.save.assert_called_once_with(cfg)
 
   async def test_monitor_server_lifecycle_triggers_inspection_on_startup_transition(self):

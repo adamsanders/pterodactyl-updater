@@ -1,6 +1,7 @@
 import json
 import threading
 import unittest
+import warnings
 from unittest.mock import AsyncMock, MagicMock
 
 from app.core.models import AppConfigModel, ServerModel
@@ -164,9 +165,11 @@ class TestConfigDecoupling(unittest.TestCase):
         last_status="Updating",
     )
     # Python attribute access remains 100% backward-compatible
-    self.assertEqual(srv.current_build, "100")
-    self.assertEqual(srv.latest_build, "200")
-    self.assertEqual(srv.last_status, "Updating")
+    with warnings.catch_warnings():
+      warnings.simplefilter("ignore", DeprecationWarning)
+      self.assertEqual(srv.current_build, "100")
+      self.assertEqual(srv.latest_build, "200")
+      self.assertEqual(srv.last_status, "Updating")
 
 
 class TestServiceRuntimeStateIntegration(unittest.IsolatedAsyncioTestCase):

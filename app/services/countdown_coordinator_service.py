@@ -81,7 +81,7 @@ class CountdownCoordinatorService:
         )
       else:
         status_msg = "Countdown cancelled"
-      server.last_status = status_msg
+      object.__setattr__(server, "_ephemeral_last_status", status_msg)
       if self.runtime_state and server.server_id:
         self.runtime_state.update_server_state(
             server_id=server.server_id,
@@ -126,13 +126,24 @@ class CountdownCoordinatorService:
       logger.info(
           f"[{server.name}] {total_seconds // 60}-minute countdown ended. Restarting server via Pterodactyl API."
       )
-      server.last_status = "Restarting server via Pterodactyl API..."
+      status_msg = "Restarting server via Pterodactyl API..."
+      object.__setattr__(server, "_ephemeral_last_status", status_msg)
       if self.runtime_state and server.server_id:
         self.runtime_state.update_server_state(
             server_id=server.server_id,
-            last_status=server.last_status,
+            last_status=status_msg,
         )
-      self._restarted_builds[server.server_id] = server.latest_build
+      st = (
+          self.runtime_state.get_server_state(server.server_id)
+          if self.runtime_state and server.server_id
+          else None
+      )
+      latest_b = (
+          st.latest_build
+          if (st and st.latest_build != "Unknown")
+          else getattr(server, "_ephemeral_latest_build", "Unknown")
+      )
+      self._restarted_builds[server.server_id] = latest_b
       self.countdown.stop(server.server_id)
       fresh_cfg = self.repo.load()
       panel_url = fresh_cfg.panel_url or cfg.panel_url

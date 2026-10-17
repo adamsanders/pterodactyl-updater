@@ -139,22 +139,22 @@ class ServerCardViewModel(BaseModel):
       if runtime_state.last_status and str(runtime_state.last_status) != "Idle":
         status = str(runtime_state.last_status)
     else:
-      ephem_cur = getattr(server, "_ephemeral_current_build", None) or getattr(server, "current_build", None)
+      ephem_cur = getattr(server, "_ephemeral_current_build", None)
       if ephem_cur:
         current_build = str(ephem_cur)
-      ephem_lat = getattr(server, "_ephemeral_latest_build", None) or getattr(server, "latest_build", None)
+      ephem_lat = getattr(server, "_ephemeral_latest_build", None)
       if ephem_lat:
         latest_build = str(ephem_lat)
-      ephem_stat = getattr(server, "_ephemeral_last_status", None) or getattr(server, "last_status", None)
+      ephem_stat = getattr(server, "_ephemeral_last_status", None)
       if ephem_stat and str(ephem_stat) != "Idle":
         status = str(ephem_stat)
 
     if current_build == "Unknown":
-      ephem_cur = getattr(server, "_ephemeral_current_build", None) or getattr(server, "current_build", None)
+      ephem_cur = getattr(server, "_ephemeral_current_build", None)
       if ephem_cur and str(ephem_cur) != "Unknown":
         current_build = str(ephem_cur)
     if latest_build == "Unknown":
-      ephem_lat = getattr(server, "_ephemeral_latest_build", None) or getattr(server, "latest_build", None)
+      ephem_lat = getattr(server, "_ephemeral_latest_build", None)
       if ephem_lat and str(ephem_lat) != "Unknown":
         latest_build = str(ephem_lat)
 

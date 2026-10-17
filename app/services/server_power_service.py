@@ -103,7 +103,7 @@ class ServerPowerService:
         )
         self.countdown.stop(server.server_id)
         status_msg = f"Countdown cancelled ({sig} requested)"
-        server.last_status = status_msg
+        object.__setattr__(server, "_ephemeral_last_status", status_msg)
         if self.runtime_state:
           self.runtime_state.update_server_state(
               server.server_id, last_status=status_msg

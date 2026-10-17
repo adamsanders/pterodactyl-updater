@@ -70,7 +70,7 @@
         <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
         Checking...
       </span>
-      <span id="srv_status_{{ idx }}" class="text-xs font-medium">{{ st.last_status if (st and st.last_status and st.last_status != 'Idle') else (s.status if (s and s.status and s.status != 'Idle') else (s.last_status if (s and s.last_status and s.last_status != 'Idle') else '')) }}</span>
+      <span id="srv_status_{{ idx }}" class="text-xs font-medium">{{ st.last_status if (st and st.last_status and st.last_status != 'Idle') else (s.status if (s and s.card_index is defined and s.status and s.status != 'Idle') else (s._ephemeral_last_status if (s and s._ephemeral_last_status and s._ephemeral_last_status != 'Idle') else '')) }}</span>
     </div>
 
     <!-- Network Address with Mouseover Internal IP & Player Count -->
@@ -102,8 +102,8 @@
         </span>
       </div>
       <div id="srv_builds_{{ idx }}" class="flex items-center gap-1">
-        {% set cur_build = st.current_build if (st and st.current_build not in ['Unknown', '?', None]) else (s.current_build if s else 'Unknown') %}
-        {% set lat_build = st.latest_build if (st and st.latest_build not in ['Unknown', '?', None]) else (s.latest_build if s else 'Unknown') %}
+        {% set cur_build = st.current_build if (st and st.current_build not in ['Unknown', '?', None]) else (s.current_build if (s and s.card_index is defined) else (s._ephemeral_current_build if (s and s._ephemeral_current_build) else 'Unknown')) %}
+        {% set lat_build = st.latest_build if (st and st.latest_build not in ['Unknown', '?', None]) else (s.latest_build if (s and s.card_index is defined) else (s._ephemeral_latest_build if (s and s._ephemeral_latest_build) else 'Unknown')) %}
         {% if s and cur_build == lat_build and cur_build not in ['Unknown', '?', None] %}
           <span class="text-gray-400 mr-1.5">Build:</span><span class="font-mono text-gray-200">{{ lat_build }}</span>
           <svg class="w-4 h-4 text-emerald-400 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>

@@ -72,7 +72,6 @@ class TestServerPowerService(unittest.IsolatedAsyncioTestCase):
     self.assertTrue(res.success)
     self.orchestrator.clear_restarted_build.assert_called_once_with("srv-1")
     self.assertFalse(self.countdown.is_running("srv-1"))
-    self.assertIn("restart requested", srv.last_status)
     st = self.runtime_state.get_server_state("srv-1")
     self.assertIn("restart requested", st.last_status)
     self.ptero.send_power_signal.assert_called_once_with(

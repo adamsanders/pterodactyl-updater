@@ -54,37 +54,40 @@ class ServerInspectionService:
   ) -> None:
     """Evaluates differences between Steam remote build and local container manifest."""
     p_state = PowerState.from_str(power_state)
-    if latest_build:
-      server.latest_build = latest_build
-    if local_build:
-      server.current_build = local_build
-
+    status_msg = None
     if read_error:
-      server.last_status = f"Error: {read_error}"
+      status_msg = f"Error: {read_error}"
     elif not latest_build:
-      server.last_status = f"{ServerUpdateStatus.ERROR}: Unreachable SteamCMD API"
+      status_msg = f"{ServerUpdateStatus.ERROR}: Unreachable SteamCMD API"
     elif latest_build == local_build:
       if self.countdown.is_running(server.server_id):
         self.countdown.stop(server.server_id)
       self._restarted_builds.pop(server.server_id, None)
-      server.last_status = ServerUpdateStatus.UP_TO_DATE
+      status_msg = ServerUpdateStatus.UP_TO_DATE
     else:
       if self.countdown.is_running(server.server_id):
-        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
+        status_msg = ServerUpdateStatus.COUNTDOWN_ACTIVE
       elif self._restarted_builds.get(server.server_id) == latest_build:
-        server.last_status = ServerUpdateStatus.RESTART_DISPATCHED
+        status_msg = ServerUpdateStatus.RESTART_DISPATCHED
       elif server.auto_restart and p_state == PowerState.RUNNING:
-        server.last_status = ServerUpdateStatus.COUNTDOWN_ACTIVE
+        status_msg = ServerUpdateStatus.COUNTDOWN_ACTIVE
         self.countdown_coordinator.start_countdown(server)
       else:
-        server.last_status = ServerUpdateStatus.UPDATE_AVAILABLE
+        status_msg = ServerUpdateStatus.UPDATE_AVAILABLE
+
+    if latest_build:
+      object.__setattr__(server, "_ephemeral_latest_build", latest_build)
+    if local_build:
+      object.__setattr__(server, "_ephemeral_current_build", local_build)
+    if status_msg:
+      object.__setattr__(server, "_ephemeral_last_status", status_msg)
 
     if self.runtime_state and server.server_id:
       self.runtime_state.update_server_state(
           server_id=server.server_id,
-          current_build=server.current_build,
-          latest_build=server.latest_build,
-          last_status=server.last_status,
+          current_build=local_build,
+          latest_build=latest_build,
+          last_status=status_msg,
       )
 
   async def inspect_server(
@@ -141,11 +144,11 @@ class ServerInspectionService:
 
     # 3. Retrieve SteamCMD build info (always query to detect new/withdrawn/simulated builds)
     if not server.app_id:
-      server.last_status = "App ID not configured"
+      object.__setattr__(server, "_ephemeral_last_status", "App ID not configured")
       if self.runtime_state and server.server_id:
         self.runtime_state.update_server_state(
             server_id=server.server_id,
-            last_status=server.last_status,
+            last_status="App ID not configured",
         )
       return
 
@@ -163,7 +166,7 @@ class ServerInspectionService:
       latest_build = steam_build_cache[server.app_id]
 
     if latest_build:
-      server.latest_build = latest_build
+      object.__setattr__(server, "_ephemeral_latest_build", latest_build)
 
     # 4. Skip local manifest I/O if server is starting/stopping, or offline following update restart
     if power_state in TRANSITIONAL_POWER_STATES or (
@@ -178,11 +181,11 @@ class ServerInspectionService:
 
     # 5. Read local container manifest (safe when Online or Offline)
     if not server.manifest_path:
-      server.last_status = "Manifest path not configured"
+      object.__setattr__(server, "_ephemeral_last_status", "Manifest path not configured")
       if self.runtime_state and server.server_id:
         self.runtime_state.update_server_state(
             server_id=server.server_id,
-            last_status=server.last_status,
+            last_status="Manifest path not configured",
         )
       return
 

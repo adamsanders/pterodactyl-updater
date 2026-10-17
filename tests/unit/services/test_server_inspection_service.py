@@ -69,7 +69,6 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
         power_state=PowerState.RUNNING,
     )
 
-    self.assertEqual(server.last_status, ServerUpdateStatus.UP_TO_DATE)
     self.assertFalse(self.countdown.is_running("srv-1"))
     self.assertNotIn("srv-1", self.restarted_builds)
     st = self.runtime_state.get_server_state("srv-1")
@@ -84,7 +83,10 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
         read_error="Manifest missing",
         power_state=PowerState.RUNNING,
     )
-    self.assertEqual(server.last_status, "Error: Manifest missing")
+    self.assertEqual(
+        self.runtime_state.get_server_state("srv-1").last_status,
+        "Error: Manifest missing",
+    )
 
   async def test_evaluate_build_status_unreachable_steam(self):
     server = ServerModel(name="Valheim", server_id="srv-1", app_id="896660")
@@ -95,7 +97,10 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
         read_error=None,
         power_state=PowerState.RUNNING,
     )
-    self.assertIn("Unreachable SteamCMD API", server.last_status)
+    self.assertIn(
+        "Unreachable SteamCMD API",
+        self.runtime_state.get_server_state("srv-1").last_status,
+    )
 
   async def test_evaluate_build_status_triggers_countdown_when_running_and_auto_restart(self):
     server = ServerModel(
@@ -114,7 +119,10 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
         power_state=PowerState.RUNNING,
     )
 
-    self.assertEqual(server.last_status, ServerUpdateStatus.COUNTDOWN_ACTIVE)
+    self.assertEqual(
+        self.runtime_state.get_server_state("srv-1").last_status,
+        ServerUpdateStatus.COUNTDOWN_ACTIVE,
+    )
     self.coordinator.start_countdown.assert_called_once_with(server)
 
   async def test_evaluate_build_status_offline_does_not_trigger_countdown(self):
@@ -134,7 +142,10 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
         power_state=PowerState.OFFLINE,
     )
 
-    self.assertEqual(server.last_status, ServerUpdateStatus.UPDATE_AVAILABLE)
+    self.assertEqual(
+        self.runtime_state.get_server_state("srv-1").last_status,
+        ServerUpdateStatus.UPDATE_AVAILABLE,
+    )
     self.coordinator.start_countdown.assert_not_called()
 
   async def test_inspect_server_synchronizes_name_change(self):
@@ -184,4 +195,7 @@ class TestServerInspectionService(unittest.IsolatedAsyncioTestCase):
 
     self.assertFalse(self.countdown.is_running("srv-1"))
     self.assertNotIn("srv-1", self.restarted_builds)
-    self.assertIn("Manual stopping detected", server.last_status)
+    self.assertIn(
+        "Manual stopping detected",
+        self.runtime_state.get_server_state("srv-1").last_status,
+    )

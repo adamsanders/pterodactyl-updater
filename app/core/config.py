@@ -19,7 +19,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.26.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.27.0")
 DEFAULT_COMMIT_CODE = "92206dc"
 
 

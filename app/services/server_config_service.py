@@ -181,13 +181,13 @@ class ServerConfigService:
       if repo_idx is not None:
         if success:
           cfg.servers[repo_idx].name = new_name
-          cfg.servers[repo_idx].last_status = "Renamed in Pterodactyl"
+          object.__setattr__(cfg.servers[repo_idx], "_ephemeral_last_status", "Renamed in Pterodactyl")
           if self.runtime_state:
             self.runtime_state.update_server_state(
                 target_server.server_id, last_status="Renamed in Pterodactyl"
             )
         else:
-          cfg.servers[repo_idx].last_status = f"Rename failed: {err}"
+          object.__setattr__(cfg.servers[repo_idx], "_ephemeral_last_status", f"Rename failed: {err}")
           if self.runtime_state:
             self.runtime_state.update_server_state(
                 target_server.server_id, last_status=f"Rename failed: {err}"
