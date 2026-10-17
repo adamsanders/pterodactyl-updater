@@ -59,6 +59,7 @@ import {
 } from './modules/consoleDrawer.js';
 import {
   toggleTestModeImmediate,
+  toggleSslVerifyImmediate,
   triggerSimulateBuild,
   clearTestPreview,
   renderTestPreview
@@ -81,7 +82,7 @@ export function triggerPowerAction(identifier, action, uiIndex = null) {
   return _triggerPowerAction(identifier, action, uiIndex);
 }
 
-export { getCardContext, initServerCardDelegation };
+export { getCardContext, initServerCardDelegation, toggleSslVerifyImmediate };
 
 // Bind handlers to global window object for HTML inline onclick/onchange/oninput attributes
 window.makeDraggable = makeDraggable;
@@ -94,6 +95,7 @@ window.clearTelemetryLogs = clearTelemetryLogs;
 window.pollTelemetry = pollTelemetry;
 window.filterLogs = filterLogs;
 window.toggleTestModeImmediate = toggleTestModeImmediate;
+window.toggleSslVerifyImmediate = toggleSslVerifyImmediate;
 window.triggerSimulateBuild = triggerSimulateBuild;
 window.clearTestPreview = clearTestPreview;
 window.renderTestPreview = renderTestPreview;

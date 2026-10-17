@@ -79,6 +79,7 @@ class TestFrontendModularArchitecture(unittest.TestCase):
         "window.triggerCheckNow = triggerCheckNow",
         "window.clearTelemetryLogs = clearTelemetryLogs",
         "window.toggleTestModeImmediate = toggleTestModeImmediate",
+        "window.toggleSslVerifyImmediate = toggleSslVerifyImmediate",
         "window.triggerSimulateBuild = triggerSimulateBuild",
         "window.saveSingleServer = saveSingleServer",
         "window.refreshServerName = refreshServerName",
@@ -197,6 +198,7 @@ class TestFrontendModularArchitecture(unittest.TestCase):
 
     settings_tpl = (self.templates_dir / "components" / "_settings_panel.html").read_text(encoding="utf-8")
     self.assertIn('data-action="toggle-test-mode"', settings_tpl)
+    self.assertIn('data-action="toggle-ssl-verify"', settings_tpl)
     self.assertIn('data-action="toggle-live-console"', settings_tpl)
     self.assertNotIn('onclick=', settings_tpl)
     self.assertNotIn('onchange=', settings_tpl)

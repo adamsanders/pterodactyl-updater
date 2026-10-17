@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.models import (
     AppConfigModel,
     DetectedServerDetails,
+    NotificationPreview,
     ServerModel,
     ServerRuntimeState,
     ServerUpdateStatus,
@@ -26,6 +27,12 @@ from app.web.schemas import (
     SingleServerSaveResponse,
     SyncNameRequest,
     SyncNameResponse,
+    TestWebhookRequest,
+    TestWebhookResponse,
+    ToggleSslVerifyRequest,
+    ToggleSslVerifyResponse,
+    ToggleTestModeRequest,
+    ToggleTestModeResponse,
     WebhookPreview,
 )
 
@@ -500,6 +507,40 @@ class TestStronglyTypedRouteResponses(unittest.TestCase):
     single_save = SingleServerSaveResponse(status="ok", server_id="srv-1", server={"name": "Saved"})
     self.assertEqual(single_save.server_id, "srv-1")
     self.assertEqual(single_save.server.name, "Saved")
+
+    toggle_test = ToggleTestModeResponse(status="ok", test_mode=True)
+    self.assertTrue(toggle_test.test_mode)
+
+    toggle_ssl = ToggleSslVerifyResponse(status="ok", ssl_verify=True)
+    self.assertTrue(toggle_ssl.ssl_verify)
+
+    webhook_resp = TestWebhookResponse(status="ok", message="Dispatched", server_id="srv-1")
+    self.assertEqual(webhook_resp.server_id, "srv-1")
+    self.assertEqual(webhook_resp.message, "Dispatched")
+
+  def test_dashboard_view_model_accepts_notification_preview_without_validation_error(self):
+    """Regression test ensuring NotificationPreview instances do not trigger 500 ValidationError."""
+    notif = NotificationPreview(
+        server_name="Valheim Dedicated",
+        message="Update Available: 12345",
+        timestamp="12:22 PM",
+        embed={"title": "Patch Notes", "description": "Bug fixes"},
+    )
+
+    # 1. Direct initialization on DashboardViewModel
+    dvm = DashboardViewModel(preview=notif)
+    self.assertIsNotNone(dvm.preview)
+    self.assertEqual(dvm.preview.server_name, "Valheim Dedicated")
+
+    # 2. from_domain initialization with NotificationPreview
+    cfg = AppConfigModel(servers=[ServerModel(server_id="srv-1", name="Valheim")])
+    dvm_domain = DashboardViewModel.from_domain(
+        config=cfg,
+        preview=notif,
+    )
+    self.assertIsNotNone(dvm_domain.preview)
+    self.assertEqual(dvm_domain.preview.server_name, "Valheim Dedicated")
+    self.assertEqual(dvm_domain.preview.message, "Update Available: 12345")
 
 
 if __name__ == "__main__":

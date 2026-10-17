@@ -297,7 +297,7 @@ class DashboardViewModel(BaseModel):
   servers: list[ServerCardViewModel] = Field(default_factory=list)
   app_version: str = ""
   commit_code: str = ""
-  preview: Optional[Union[WebhookPreview, dict]] = None
+  preview: Optional[Union[WebhookPreview, NotificationPreview, dict]] = None
 
   @property
   def version(self) -> str:
@@ -347,10 +347,12 @@ class DashboardViewModel(BaseModel):
       last_status: Optional[str] = None,
       app_version: str = "",
       commit_code: str = "",
-      preview: Optional[Union[WebhookPreview, dict]] = None,
+      preview: Optional[Union[WebhookPreview, NotificationPreview, dict]] = None,
   ) -> "DashboardViewModel":
     effective_last_check = last_check or getattr(config, "last_check", "Never")
     effective_last_status = last_status or getattr(config, "last_status", "Idle")
+    if isinstance(preview, NotificationPreview) and not isinstance(preview, WebhookPreview):
+      preview = WebhookPreview(**preview.model_dump())
     card_vms = []
     for idx, srv in enumerate(config.servers):
       sid = srv.server_id
@@ -534,3 +536,38 @@ class SettingsFormData:
         ssl_verify=get_bool("ssl_verify"),
         servers=servers,
     )
+
+
+class ToggleTestModeRequest(BaseModel):
+  """Typed request payload for toggling test mode."""
+  enabled: bool = False
+
+
+class ToggleTestModeResponse(BaseModel):
+  """Typed response model for test mode toggles."""
+  status: str = "ok"
+  test_mode: bool
+
+
+class ToggleSslVerifyRequest(BaseModel):
+  """Typed request payload for toggling SSL verification."""
+  enabled: bool = False
+
+
+class ToggleSslVerifyResponse(BaseModel):
+  """Typed response model for SSL verification toggles."""
+  status: str = "ok"
+  ssl_verify: bool
+
+
+class TestWebhookRequest(BaseModel):
+  """Typed request payload for triggering a test webhook dispatch."""
+  server_id: Optional[Union[str, int]] = None
+  server_idx: Optional[int] = 0
+
+
+class TestWebhookResponse(BaseModel):
+  """Typed response model for test webhook dispatches."""
+  status: str = "ok"
+  message: str = "Test alert dispatched"
+  server_id: str = ""

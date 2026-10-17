@@ -223,6 +223,79 @@ class TestAnnouncementService(unittest.IsolatedAsyncioTestCase):
             expected_cmd,
         )
 
+  async def test_send_test_alert_test_mode_sets_preview(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=True, servers=[srv])
+    self.repo.load.return_value = cfg
+    self.steam.fetch_patchnotes.return_value = {"title": "Test Patch", "description": "Notes"}
+
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertTrue(success)
+    self.assertEqual(msg, "Test simulated (Test Mode ON)")
+
+    preview = self.preview_store.get_preview()
+    self.assertIsNotNone(preview)
+    self.assertEqual(preview.server_name, "Valheim Dedicated")
+    self.assertIn("TEST ALERT", preview.message)
+    self.assertEqual(preview.embed, {"title": "Test Patch", "description": "Notes"})
+    self.discord.send_notification.assert_not_called()
+
+  async def test_send_test_alert_discord_webhook_success(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=False, discord_webhook="https://discord.com/webhook", servers=[srv])
+    self.repo.load.return_value = cfg
+    self.steam.fetch_patchnotes.return_value = None
+
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertTrue(success)
+    self.assertEqual(msg, "Test webhook dispatched to Discord")
+    self.discord.send_notification.assert_called_once()
+    self.assertIsNone(self.preview_store.get_preview())
+
+  async def test_send_test_alert_discord_webhook_notification_error_handled(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=False, discord_webhook="https://discord.com/webhook", servers=[srv])
+    self.repo.load.return_value = cfg
+    self.discord.send_notification.side_effect = NotificationError("Rate limited", status_code=429)
+
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertFalse(success)
+    self.assertIn("Error: Discord webhook dispatch failed", msg)
+
+  async def test_send_test_alert_discord_unexpected_exception_handled(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=False, discord_webhook="https://discord.com/webhook", servers=[srv])
+    self.repo.load.return_value = cfg
+    self.discord.send_notification.side_effect = RuntimeError("Socket dropped")
+
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertFalse(success)
+    self.assertIn("Error: Discord webhook dispatch failed", msg)
+
+  async def test_send_test_alert_no_webhook_configured(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=False, discord_webhook="", servers=[srv])
+    self.repo.load.return_value = cfg
+
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertFalse(success)
+    self.assertEqual(msg, "Error: No Discord Webhook configured")
+    self.discord.send_notification.assert_not_called()
+
+  async def test_send_test_alert_steam_patchnotes_error_resilience(self):
+    srv = ServerModel(name="Valheim Dedicated", server_id="srv-1", app_id="896660")
+    cfg = AppConfigModel(test_mode=True, servers=[srv])
+    self.repo.load.return_value = cfg
+    self.steam.fetch_patchnotes.side_effect = Exception("Steam API unreachable")
+
+    # Should not raise exception and should still succeed in test mode
+    success, msg = await self.service.send_test_alert(srv)
+    self.assertTrue(success)
+    self.assertEqual(msg, "Test simulated (Test Mode ON)")
+    preview = self.preview_store.get_preview()
+    self.assertIsNotNone(preview)
+    self.assertIsNone(preview.embed)
+
 
 if __name__ == "__main__":
   unittest.main()

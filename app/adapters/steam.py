@@ -61,7 +61,7 @@ class SteamAdapter:
     except Exception as e:
       logger.error(f"Failed connecting to SteamCMD API for App {app_id}: {e}")
       if raise_on_error:
-        raise SteamApiError(f"SteamCMD connection error: {e}", app_id=app_id)
+        raise SteamApiError(f"SteamCMD connection error: {e}", app_id=app_id) from e
     return None
 
   @staticmethod
@@ -121,7 +121,7 @@ class SteamAdapter:
           f"Could not fetch Steam news for AppID {game_appid}: {e}"
       )
       if raise_on_error:
-        raise SteamApiError(f"Steam news fetch failed: {e}", app_id=str(appid))
+        raise SteamApiError(f"Steam news fetch failed: {e}", app_id=str(appid)) from e
     return None
 
   async def search_games(self, query: str) -> list[SteamSearchResult]:

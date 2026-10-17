@@ -4,6 +4,7 @@
  */
 
 import { showToast } from './toast.js';
+import { toggleTestModeImmediate, toggleSslVerifyImmediate } from './simulatorModal.js';
 
 export const STOP_ICON = `<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>`;
 export const KILL_ICON = `<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 2a9 9 0 0 0-9 9c0 3.3 1.8 6.2 4.5 7.7V21a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-2.3c2.7-1.5 4.5-4.4 4.5-7.7a9 9 0 0 0-9-9zm-3 10a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>`;
@@ -305,7 +306,11 @@ export async function toggleServerSlider(identifier, idx, field, el) {
     const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/toggle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ field: field, value: isChecked })
+      body: JSON.stringify({
+        field: field,
+        value: isChecked,
+        server_idx: (idx !== undefined && idx !== null && idx !== '') ? parseInt(idx, 10) : undefined
+      })
     });
     const data = await res.json();
     if (!res.ok || data.status !== 'ok') {
@@ -616,7 +621,10 @@ export function getCardContext(element) {
       idx = idMatch[1];
     }
   }
-  return { card, idx, serverId: serverId || idx || '' };
+  const dynamicInput = (idx !== undefined && idx !== null && idx !== '') ? document.getElementById('srv_id_input_' + idx) : null;
+  const dynamicId = dynamicInput?.value?.trim();
+  const effectiveId = dynamicId || serverId || (idx !== undefined && idx !== null ? String(idx) : '');
+  return { card, idx, serverId: effectiveId };
 }
 
 /**
@@ -730,14 +738,28 @@ export function initServerCardDelegation(container = document) {
 
     if (action === 'server-id-input' || action === 'server-id-change' || (target.id && target.id.startsWith('srv_id_input_'))) {
       onServerIdChange(serverId, idx);
-    } else if (action === 'toggle-slider' || target.dataset?.field) {
-      const field = target.dataset.field;
+    } else if (action === 'toggle-slider' || target.dataset?.field || (target.name && target.name.startsWith('srv_') && target.type === 'checkbox')) {
+      let field = target.dataset?.field;
+      if (!field && target.name) {
+        if (target.name.startsWith('srv_autorestart_')) field = 'auto_restart';
+        else if (target.name.startsWith('srv_discord_')) field = 'discord_alerts';
+        else if (target.name.startsWith('srv_warningame_')) field = 'warn_ingame_countdown';
+        else if (target.name.startsWith('srv_warndiscord_')) field = 'warn_discord_countdown';
+      }
       if (field && idx !== undefined) {
         toggleServerSlider(serverId, idx, field, target);
       }
-    } else if (action === 'toggle-test-mode' || target.name === 'test_mode') {
-      if (typeof window.toggleTestModeImmediate === 'function') {
+    } else if (action === 'toggle-test-mode' || target.name === 'test_mode' || target.id === 'test_mode') {
+      if (typeof toggleTestModeImmediate === 'function') {
+        toggleTestModeImmediate(target);
+      } else if (typeof window.toggleTestModeImmediate === 'function') {
         window.toggleTestModeImmediate(target);
+      }
+    } else if (action === 'toggle-ssl-verify' || target.name === 'ssl_verify' || target.id === 'ssl_verify') {
+      if (typeof toggleSslVerifyImmediate === 'function') {
+        toggleSslVerifyImmediate(target);
+      } else if (typeof window.toggleSslVerifyImmediate === 'function') {
+        window.toggleSslVerifyImmediate(target);
       }
     }
   });

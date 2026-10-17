@@ -216,19 +216,28 @@ class StatusAggregationService:
     preview_data = None
     active_preview = self.preview_store.get_preview()
     if active_preview:
+      embed_payload = active_preview.embed
+      if hasattr(embed_payload, "model_dump"):
+        embed_payload = embed_payload.model_dump()
+      elif hasattr(embed_payload, "to_embed"):
+        embed_payload = embed_payload.to_embed()
       preview_data = {
           "server_name": active_preview.server_name,
           "message": active_preview.message,
-          "embed": active_preview.embed,
+          "embed": embed_payload,
           "timestamp": active_preview.timestamp,
       }
       # If legacy markdown_formatter was explicitly supplied, preserve formatted fields
       if self.markdown_formatter is not None:
         formatter = self.markdown_formatter
         embed_desc = (
-            active_preview.embed.get("description", "")
-            if active_preview.embed
-            else ""
+            embed_payload.get("description", "")
+            if isinstance(embed_payload, dict)
+            else (
+                getattr(embed_payload, "content", "")
+                if hasattr(embed_payload, "content")
+                else ""
+            )
         )
         preview_data["formatted_message"] = str(formatter(active_preview.message))
         preview_data["formatted_description"] = (

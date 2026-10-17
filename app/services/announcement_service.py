@@ -90,10 +90,15 @@ class AnnouncementService:
     """Dispatches a test alert to verify Discord webhook configuration or simulator."""
     cfg = self.repo.load()
     embed = None
-    if self.steam:
-      notes = await self.steam.fetch_patchnotes(server.app_id)
-      if notes:
-        embed = notes
+    if self.steam and server.app_id and str(server.app_id).strip():
+      try:
+        notes = await self.steam.fetch_patchnotes(server.app_id)
+        if notes:
+          embed = notes
+      except Exception as e:
+        logger.warning(
+            f"Failed to fetch patch notes for server {server.name} (app {server.app_id}): {e}"
+        )
 
     msg = f"🧪 **[TEST ALERT]** Testing webhook dispatch for **{server.name}**."
 
@@ -116,6 +121,9 @@ class AnnouncementService:
         except NotificationError as e:
           logger.error(f"Failed to dispatch test alert to Discord: {e}")
           return False, f"Error: Discord webhook dispatch failed ({e})"
+        except Exception as e:
+          logger.error(f"Unexpected error dispatching test alert to Discord: {e}")
+          return False, f"Error: Discord webhook dispatch failed ({e})"
       return True, "Test webhook dispatched to Discord"
     else:
       return False, "Error: No Discord Webhook configured"
@@ -135,6 +143,16 @@ class AnnouncementService:
       return embed
     if hasattr(embed, "to_embed"):
       return embed.to_embed()
+    if isinstance(embed, SteamPatchNotes) or hasattr(embed, "content"):
+      img = getattr(embed, "image_url", None)
+      return {
+          "title": f"📜 {getattr(embed, 'title', '')}",
+          "url": getattr(embed, "url", ""),
+          "description": getattr(embed, "content", ""),
+          "color": 0x1B2838,
+          "footer": {"text": "Steam Official Announcement"},
+          "image": {"url": img} if img else None,
+      }
     if hasattr(embed, "model_dump"):
       return embed.model_dump()
     return {}

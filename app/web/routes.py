@@ -51,6 +51,12 @@ from app.web.schemas import (
     SingleServerSaveResponse,
     SyncNameRequest,
     SyncNameResponse,
+    TestWebhookRequest,
+    TestWebhookResponse,
+    ToggleSslVerifyRequest,
+    ToggleSslVerifyResponse,
+    ToggleTestModeRequest,
+    ToggleTestModeResponse,
 )
 from app.web.filters import discord_markdown
 from app.web.templating import templates
@@ -143,9 +149,10 @@ async def get_status_api(
     if "formatted_message" not in prev:
       prev["formatted_message"] = str(discord_markdown(prev.get("message", "")))
     if "formatted_description" not in prev:
+      embed_val = prev.get("embed")
       embed_desc = (
-          prev.get("embed", {}).get("description", "")
-          if prev.get("embed")
+          embed_val.get("description", "")
+          if isinstance(embed_val, dict)
           else ""
       )
       prev["formatted_description"] = (
@@ -154,19 +161,36 @@ async def get_status_api(
   return JSONResponse(snapshot)
 
 
-
-@router.post("/toggle-test-mode")
+@router.post("/api/toggle-test-mode", response_model=ToggleTestModeResponse)
+@router.post("/toggle-test-mode", response_model=ToggleTestModeResponse)
 async def toggle_test_mode(
     request: Request,
     service: ServerService = Depends(get_service),
-):
+) -> ToggleTestModeResponse:
   try:
-    enabled = bool((await request.json()).get("enabled", False))
+    data = await request.json()
+    enabled = bool(data.get("enabled", False))
   except Exception:
     enabled = False
 
   result = await service.toggle_test_mode(enabled)
-  return {"status": "ok", "test_mode": result}
+  return ToggleTestModeResponse(status="ok", test_mode=result)
+
+
+@router.post("/api/toggle-ssl-verify", response_model=ToggleSslVerifyResponse)
+@router.post("/toggle-ssl-verify", response_model=ToggleSslVerifyResponse)
+async def toggle_ssl_verify(
+    request: Request,
+    service: ServerService = Depends(get_service),
+) -> ToggleSslVerifyResponse:
+  try:
+    data = await request.json()
+    enabled = bool(data.get("enabled", False))
+  except Exception:
+    enabled = False
+
+  result = await service.toggle_ssl_verify(enabled)
+  return ToggleSslVerifyResponse(status="ok", ssl_verify=result)
 
 
 @router.post("/api/test/simulate-build", response_model=SimulateBuildResponse)
@@ -271,9 +295,18 @@ async def toggle_server_setting(
   body = await request.json()
   field = body.get("field", "")
   val = bool(body.get("value", False))
-  res = service.update_server_toggle(server_id, field, val)
-  if inspect.isawaitable(res):
-    await res
+  server_idx = body.get("server_idx")
+  try:
+    res = service.update_server_toggle(server_id, field, val)
+    if inspect.isawaitable(res):
+      await res
+  except ServerNotFoundError:
+    if server_idx is not None:
+      res = service.update_server_toggle(server_idx, field, val)
+      if inspect.isawaitable(res):
+        await res
+    else:
+      raise
   return JSONResponse({"status": "ok", "field": field, "value": val})
 
 
@@ -397,9 +430,35 @@ async def rename_server(
   return RedirectResponse(url="/?toast=renamed", status_code=303)
 
 
+@router.post("/api/test/webhook", response_model=TestWebhookResponse)
+@router.post("/api/test/webhook/{server_id}", response_model=TestWebhookResponse)
+async def api_test_webhook(
+    server_id: Optional[str] = None,
+    payload: Optional[TestWebhookRequest] = None,
+    service: ServerService = Depends(get_service),
+    repo: ConfigRepositoryProtocol = Depends(get_repo),
+) -> TestWebhookResponse:
+  target_id = server_id or (payload.server_id if payload else None) or (payload.server_idx if payload else None) or 0
+  cfg = repo.load()
+  idx = service.find_server_index(cfg.servers, target_id)
+  if idx is None and cfg.servers:
+    idx = 0
+  if idx is None:
+    raise ServerNotFoundError(str(target_id))
+
+  actual_server = cfg.servers[idx]
+  status_msg = await service.test_webhook(actual_server.server_id or idx)
+  return TestWebhookResponse(
+      status="ok",
+      message=status_msg or "Test alert dispatched",
+      server_id=str(actual_server.server_id or target_id),
+  )
+
+
 @router.post("/test-webhook/{server_id}")
 async def test_webhook(
     server_id: str,
+    request: Request,
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
@@ -407,7 +466,9 @@ async def test_webhook(
   if service.find_server_index(servers, server_id) is None:
     raise ServerNotFoundError(server_id)
 
-  await service.test_webhook(server_id)
+  status_msg = await service.test_webhook(server_id)
+  if request.headers.get("accept") == "application/json":
+    return JSONResponse({"status": "ok", "message": status_msg, "server_id": server_id})
   return RedirectResponse(url="/", status_code=303)
 
 

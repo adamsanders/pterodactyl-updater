@@ -1,8 +1,11 @@
 import logging
 from typing import Optional, Union
 from app.core.models import SteamPatchNotes, SteamSearchResult
-from app.core.protocols import ConfigRepositoryProtocol, SteamGateway
-from app.services.build_simulator import BuildSimulatorStore
+from app.core.protocols import (
+    BuildSimulatorProtocol,
+    ConfigRepositoryProtocol,
+    SteamGateway,
+)
 
 logger = logging.getLogger("updater.steam.simulated")
 
@@ -17,7 +20,7 @@ class SimulatedSteamAdapter:
   def __init__(
       self,
       real_steam: SteamGateway,
-      simulator_store: BuildSimulatorStore,
+      simulator_store: BuildSimulatorProtocol,
       repository: ConfigRepositoryProtocol,
   ):
     self._real_steam = real_steam

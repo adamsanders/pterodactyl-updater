@@ -165,11 +165,11 @@ class ServerService:
   ) -> OperationResult:
     return await self.power_service.execute_graceful_restart(identifier)
 
-  async def test_webhook(self, identifier: Union[str, int]) -> None:
+  async def test_webhook(self, identifier: Union[str, int]) -> str:
     cfg = self.repo.load()
     idx = self.find_server_index(cfg.servers, identifier)
     if idx is None:
-      return
+      return "Server not found"
 
     server = cfg.servers[idx]
     _, status_msg = await self.announcements.send_test_alert(server)
@@ -179,6 +179,7 @@ class ServerService:
           server.server_id, last_status=status_msg
       )
     self.repo.save(cfg)
+    return status_msg
 
   def simulate_build_update(
       self, identifier: Union[str, int], new_build_id: str
@@ -227,25 +228,35 @@ class ServerService:
     return target_id
 
   async def toggle_test_mode(self, enabled: bool) -> bool:
-    cfg = self.repo.load()
-    cfg.test_mode = enabled
-    if not enabled:
-      self.simulator_store.clear_simulated_build()
-      for srv in cfg.servers:
-        if self.countdown.is_running(srv.server_id):
-          self.countdown.stop(srv.server_id)
-          object.__setattr__(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
-          if self.runtime_state:
-            self.runtime_state.update_server_state(
-                srv.server_id,
-                last_status=ServerUpdateStatus.IDLE,
-            )
-    self.repo.save(cfg)
+    async with self.config_service.lock:
+      cfg = self.repo.load()
+      cfg.test_mode = enabled
+      if not enabled:
+        self.simulator_store.clear_simulated_build()
+        for srv in cfg.servers:
+          if self.countdown.is_running(srv.server_id):
+            self.countdown.stop(srv.server_id)
+            object.__setattr__(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
+            if self.runtime_state:
+              self.runtime_state.update_server_state(
+                  srv.server_id,
+                  last_status=ServerUpdateStatus.IDLE,
+              )
+      if hasattr(self.config_service, "_persist_config"):
+        await self.config_service._persist_config(cfg)
+      else:
+        self.repo.save(cfg)
     if self.orchestrator:
       self.orchestrator.clear_restarted_build()
       if not enabled:
         await self.orchestrator.run_update_check()
     return enabled
+
+  async def toggle_ssl_verify(self, enabled: bool) -> bool:
+    res = self.config_service.toggle_ssl_verify(enabled)
+    if inspect.isawaitable(res):
+      return await res
+    return res
 
   async def trigger_immediate_check(self) -> None:
     self.ptero.invalidate_power_cache()

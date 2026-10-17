@@ -622,3 +622,39 @@ class TestServerConfigService(unittest.IsolatedAsyncioTestCase):
     self.assertTrue(repo.async_save_called)
     self.assertEqual(repo.c.servers[0].name, "Async Renamed")
 
+  async def test_toggle_ssl_verify_persists_state(self):
+    cfg = AppConfigModel(ssl_verify=False)
+    self.repo.load.return_value = cfg
+
+    res = await self.service.toggle_ssl_verify(True)
+    self.assertTrue(res)
+    self.repo.save.assert_called_once()
+    self.assertTrue(cfg.ssl_verify)
+
+  async def test_toggle_test_mode_persists_state(self):
+    cfg = AppConfigModel(test_mode=False)
+    self.repo.load.return_value = cfg
+
+    res = await self.service.toggle_test_mode(True)
+    self.assertTrue(res)
+    self.repo.save.assert_called_once()
+    self.assertTrue(cfg.test_mode)
+
+  async def test_update_server_toggle_persists_field(self):
+    srv = ServerModel(name="Test Box", server_id="srv-toggle", auto_restart=False)
+    cfg = AppConfigModel(servers=[srv])
+    self.repo.load.return_value = cfg
+
+    updated = await self.service.update_server_toggle("srv-toggle", "auto_restart", True)
+    self.assertTrue(updated.auto_restart)
+    self.repo.save.assert_called_once()
+    self.assertTrue(srv.auto_restart)
+
+  async def test_update_server_toggle_invalid_field_raises(self):
+    srv = ServerModel(name="Test Box", server_id="srv-toggle")
+    cfg = AppConfigModel(servers=[srv])
+    self.repo.load.return_value = cfg
+
+    with self.assertRaises(ConfigurationError):
+      await self.service.update_server_toggle("srv-toggle", "invalid_field", True)
+

@@ -345,14 +345,37 @@ class ServerConfigService:
     try:
       asyncio.get_running_loop()
       return self.execute_locked(
-          self._execute_update_server_toggle, identifier, field, value
+          self._execute_update_server_toggle_async, identifier, field, value
       )
     except RuntimeError:
-      return self._execute_update_server_toggle(identifier, field, value)
+      return self._execute_update_server_toggle_sync(identifier, field, value)
 
-  def _execute_update_server_toggle(
+  async def _execute_update_server_toggle_async(
       self, identifier: Union[str, int], field: str, value: bool
-  ) -> None:
+  ) -> ServerModel:
+    allowed_fields = {
+        "auto_restart",
+        "discord_alerts",
+        "warn_ingame_countdown",
+        "warn_discord_countdown",
+    }
+    if field not in allowed_fields:
+      raise ConfigurationError(
+          f"Invalid toggle field '{field}'. Allowed fields: {allowed_fields}"
+      )
+
+    cfg = self.repo.load()
+    idx = cfg.find_server_index(identifier)
+    if idx is None:
+      raise ServerNotFoundError(str(identifier))
+
+    setattr(cfg.servers[idx], field, bool(value))
+    await self._persist_config(cfg)
+    return cfg.servers[idx]
+
+  def _execute_update_server_toggle_sync(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> ServerModel:
     allowed_fields = {
         "auto_restart",
         "discord_alerts",
@@ -372,6 +395,57 @@ class ServerConfigService:
     setattr(cfg.servers[idx], field, bool(value))
     self.repo.save(cfg)
     return cfg.servers[idx]
+
+  def _execute_update_server_toggle(
+      self, identifier: Union[str, int], field: str, value: bool
+  ) -> ServerModel:
+    return self._execute_update_server_toggle_sync(identifier, field, value)
+
+  def toggle_ssl_verify(self, enabled: bool):
+    """Toggles and immediately persists the global SSL certificate verification setting."""
+    try:
+      asyncio.get_running_loop()
+      return self.execute_locked(self._execute_toggle_ssl_verify_async, enabled)
+    except RuntimeError:
+      return self._execute_toggle_ssl_verify_sync(enabled)
+
+  async def _execute_toggle_ssl_verify_async(self, enabled: bool) -> bool:
+    cfg = self.repo.load()
+    cfg.ssl_verify = bool(enabled)
+    await self._persist_config(cfg)
+    return cfg.ssl_verify
+
+  def _execute_toggle_ssl_verify_sync(self, enabled: bool) -> bool:
+    cfg = self.repo.load()
+    cfg.ssl_verify = bool(enabled)
+    self.repo.save(cfg)
+    return cfg.ssl_verify
+
+  def _execute_toggle_ssl_verify(self, enabled: bool) -> bool:
+    return self._execute_toggle_ssl_verify_sync(enabled)
+
+  def toggle_test_mode(self, enabled: bool):
+    """Toggles and immediately persists the global test mode simulator setting."""
+    try:
+      asyncio.get_running_loop()
+      return self.execute_locked(self._execute_toggle_test_mode_async, enabled)
+    except RuntimeError:
+      return self._execute_toggle_test_mode_sync(enabled)
+
+  async def _execute_toggle_test_mode_async(self, enabled: bool) -> bool:
+    cfg = self.repo.load()
+    cfg.test_mode = bool(enabled)
+    await self._persist_config(cfg)
+    return cfg.test_mode
+
+  def _execute_toggle_test_mode_sync(self, enabled: bool) -> bool:
+    cfg = self.repo.load()
+    cfg.test_mode = bool(enabled)
+    self.repo.save(cfg)
+    return cfg.test_mode
+
+  def _execute_toggle_test_mode(self, enabled: bool) -> bool:
+    return self._execute_toggle_test_mode_sync(enabled)
 
   async def toggle_server(
       self, identifier: Union[str, int], field: str, value: bool

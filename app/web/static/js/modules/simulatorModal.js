@@ -12,27 +12,57 @@ import { sanitizeUrl, clearChildren } from './domUtils.js';
  * @param {HTMLInputElement} el - Checkbox input element.
  */
 export async function toggleTestModeImmediate(el) {
+  const isEnabled = el.checked;
+  const simWindow = document.getElementById('test-simulator-window');
+  if (simWindow) {
+    if (isEnabled) {
+      simWindow.classList.remove('hidden');
+    } else {
+      simWindow.classList.add('hidden');
+    }
+  }
+
   try {
-    const res = await fetch('/toggle-test-mode', {
+    const res = await fetch('/api/toggle-test-mode', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: el.checked })
+      body: JSON.stringify({ enabled: isEnabled })
     });
     if (!res.ok) throw new Error('Failed to update Test Mode');
-
-    const simWindow = document.getElementById('test-simulator-window');
+    showToast(isEnabled ? 'Test Mode enabled (Simulation window active)' : 'Test Mode disabled', 'success');
+  } catch (err) {
+    console.error(err);
+    el.checked = !isEnabled;
     if (simWindow) {
-      if (el.checked) {
+      if (!isEnabled) {
         simWindow.classList.remove('hidden');
       } else {
         simWindow.classList.add('hidden');
       }
     }
-    showToast(el.checked ? 'Test Mode enabled (Simulation window active)' : 'Test Mode disabled', 'success');
+    showToast('Failed to update Test Mode.', 'error');
+  }
+}
+
+/**
+ * Toggles SSL verification immediately and persists configuration.
+ *
+ * @param {HTMLInputElement} el - Checkbox input element.
+ */
+export async function toggleSslVerifyImmediate(el) {
+  const isEnabled = el.checked;
+  try {
+    const res = await fetch('/api/toggle-ssl-verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: isEnabled })
+    });
+    if (!res.ok) throw new Error('Failed to update SSL verification setting');
+    showToast(isEnabled ? 'SSL Certificate Verification enabled' : 'SSL Certificate Verification disabled', 'success');
   } catch (err) {
     console.error(err);
-    el.checked = !el.checked;
-    showToast('Failed to update Test Mode.', 'error');
+    el.checked = !isEnabled;
+    showToast('Failed to update SSL verification setting.', 'error');
   }
 }
 
