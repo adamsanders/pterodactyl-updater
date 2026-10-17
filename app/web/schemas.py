@@ -1,36 +1,47 @@
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
-from app.core.models import AppConfigModel, ServerModel, ServerRuntimeState
+from app.core.models import (
+    AppConfigModel,
+    NotificationPreview,
+    SaveServerCommand,
+    SaveSettingsCommand,
+    ServerModel,
+    ServerRuntimeState,
+)
 from starlette.datastructures import FormData
 
 
-class SingleServerSaveRequest(BaseModel):
+class SingleServerSaveRequest(SaveServerCommand):
   """Typed JSON request body for saving an individual server card."""
-  name: str = ""
-  server_id: str = ""
-  app_id: str = ""
-  manifest_path: str = ""
-  query_port_offset: int = 0
-  broadcast_command_template: str = "say {message}"
+
+  def to_command(self) -> SaveServerCommand:
+    """Maps the HTTP request schema to a pure domain SaveServerCommand preserving set fields."""
+    return SaveServerCommand(**self.model_dump(exclude_unset=True))
 
 
-class SettingsUpdateDTO(BaseModel):
+class SettingsUpdateDTO(SaveSettingsCommand):
   """Presentation DTO encapsulating global settings form updates."""
-  panel_url: str = ""
-  api_key: str = ""
-  check_interval: int = Field(default=15, ge=1, le=1440)
-  discord_webhook: str = ""
-  test_mode: bool = False
-  ssl_verify: bool = False
-  servers: List[ServerModel] = Field(default_factory=list)
+
+  def to_command(self) -> SaveSettingsCommand:
+    """Maps the presentation DTO to a pure domain SaveSettingsCommand."""
+    return SaveSettingsCommand(**self.model_dump(exclude_unset=True))
 
 
-class WebhookPreview(BaseModel):
+class WebhookPreview(NotificationPreview):
   """Presentation DTO for simulated or pending Discord notification webhooks."""
-  server_name: str
-  message: str
-  embed: Optional[dict] = None
-  timestamp: str
+
+  def to_domain(self) -> NotificationPreview:
+    """Maps the presentation DTO to a pure domain NotificationPreview."""
+    return NotificationPreview(
+        server_name=self.server_name,
+        message=self.message,
+        embed=self.embed,
+        timestamp=self.timestamp,
+    )
+
+  def to_command(self) -> NotificationPreview:
+    """Maps the presentation DTO to a pure domain NotificationPreview."""
+    return self.to_domain()
 
 
 class SimulateBuildRequest(BaseModel):
@@ -287,7 +298,15 @@ class DashboardViewModel(BaseModel):
 
 
 class SettingsFormData:
-  """Web presentation parser translating HTML form data into domain SettingsUpdateDTO."""
+  """Web presentation parser translating HTML form data into domain commands."""
+
+  @classmethod
+  async def to_command(
+      cls, form: FormData, current_servers: List[ServerModel]
+  ) -> SaveSettingsCommand:
+    """Maps HTML form data directly to a domain SaveSettingsCommand."""
+    dto = await cls.from_form(form, current_servers)
+    return dto.to_command()
 
   @classmethod
   async def from_form(

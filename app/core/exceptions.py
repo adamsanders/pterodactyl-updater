@@ -6,6 +6,10 @@ from typing import Optional
 class DomainError(Exception):
   """Base exception for all application domain errors."""
 
+  def __init__(self, message: str = "", status_code: Optional[int] = None):
+    super().__init__(message)
+    self.status_code = status_code
+
 
 class PterodactylApiError(DomainError):
   """Raised when a Pterodactyl Panel API call fails or encounters an error."""
@@ -17,8 +21,7 @@ class PterodactylApiError(DomainError):
       server_id: Optional[str] = None,
       details: Optional[str] = None,
   ):
-    super().__init__(message)
-    self.status_code = status_code
+    super().__init__(message, status_code=status_code)
     self.server_id = server_id
     self.details = details
 
@@ -32,9 +35,8 @@ class SteamApiError(DomainError):
       app_id: Optional[str] = None,
       status_code: Optional[int] = None,
   ):
-    super().__init__(message)
+    super().__init__(message, status_code=status_code or 502)
     self.app_id = app_id
-    self.status_code = status_code or 502
 
 
 class A2SQueryError(DomainError):
@@ -46,17 +48,15 @@ class A2SQueryError(DomainError):
       server_id: Optional[str] = None,
       status_code: Optional[int] = None,
   ):
-    super().__init__(message)
+    super().__init__(message, status_code=status_code or 504)
     self.server_id = server_id
-    self.status_code = status_code or 504
 
 
 class ConfigurationError(DomainError):
   """Raised when application configuration is invalid or corrupted."""
 
   def __init__(self, message: str, status_code: Optional[int] = None):
-    super().__init__(message)
-    self.status_code = status_code or 400
+    super().__init__(message, status_code=status_code or 400)
 
 
 class NotificationError(DomainError):
@@ -68,57 +68,60 @@ class NotificationError(DomainError):
       status_code: Optional[int] = None,
       details: Optional[str] = None,
   ):
-    super().__init__(message)
-    self.status_code = status_code or 502
+    super().__init__(message, status_code=status_code or 502)
     self.details = details
 
 
-class UnauthorizedError(PterodactylApiError):
-  """Raised when authentication or authorization to an external service fails."""
+class UnauthorizedError(DomainError):
+  """Raised when authentication or authorization fails."""
 
   def __init__(
       self,
       message: str = "Unauthorized access to panel",
-      status_code: int = 401,
+      status_code: Optional[int] = 401,
       server_id: Optional[str] = None,
   ):
-    super().__init__(message, status_code=status_code, server_id=server_id)
+    super().__init__(message, status_code=status_code or 401)
+    self.server_id = server_id
 
 
-class NotFoundError(PterodactylApiError):
+class NotFoundError(DomainError):
   """Raised when a requested resource or entity is not found."""
 
   def __init__(
       self,
       message: str = "Resource not found",
-      status_code: int = 404,
+      status_code: Optional[int] = 404,
       server_id: Optional[str] = None,
   ):
-    super().__init__(message, status_code=status_code, server_id=server_id)
+    super().__init__(message, status_code=status_code or 404)
+    self.server_id = server_id
 
 
-class ConflictError(PterodactylApiError):
+class ConflictError(DomainError):
   """Raised when an operation conflicts with the current resource state."""
 
   def __init__(
       self,
       message: str = "Conflict",
-      status_code: int = 409,
+      status_code: Optional[int] = 409,
       server_id: Optional[str] = None,
   ):
-    super().__init__(message, status_code=status_code, server_id=server_id)
+    super().__init__(message, status_code=status_code or 409)
+    self.server_id = server_id
 
 
-class ValidationError(PterodactylApiError):
+class ValidationError(DomainError):
   """Raised when domain entity or input validation fails."""
 
   def __init__(
       self,
       message: str = "Validation error",
-      status_code: int = 422,
+      status_code: Optional[int] = 400,
       server_id: Optional[str] = None,
   ):
-    super().__init__(message, status_code=status_code, server_id=server_id)
+    super().__init__(message, status_code=status_code or 400)
+    self.server_id = server_id
 
 
 class ServerNotFoundError(NotFoundError):

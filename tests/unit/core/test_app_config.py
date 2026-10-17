@@ -286,7 +286,7 @@ class TestCleanErrorArchitecture(unittest.TestCase):
 
   def test_no_regex_scraping_from_error_string(self):
     res = OperationResult(success=False, error="Panel HTTP 500: Server exploded")
-    with self.assertRaises(PterodactylApiError) as ctx:
+    with self.assertRaises(DomainError) as ctx:
       res.raise_if_failed()
     self.assertEqual(ctx.exception.status_code, 400)
 

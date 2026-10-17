@@ -10,12 +10,10 @@ from app.core.exceptions import (
 from app.core.models import (
     AppConfigModel,
     DetectedServerDetails,
+    SaveServerCommand,
+    SaveSettingsCommand,
     ServerModel,
     SteamSearchResult,
-)
-from app.web.schemas import (
-    SettingsUpdateDTO,
-    SingleServerSaveRequest,
 )
 from app.core.protocols import (
     ConfigRepositoryProtocol,
@@ -73,7 +71,7 @@ class ServerConfigService:
       return servers_or_identifier.find_server_index(identifier)
     return AppConfigModel.model_construct(servers=servers_or_identifier).find_server_index(identifier)
 
-  def save_settings(self, settings: SettingsUpdateDTO):
+  def save_settings(self, settings: SaveSettingsCommand):
     """Persists global settings and updates runtime state store tracking."""
     try:
       asyncio.get_running_loop()
@@ -81,7 +79,7 @@ class ServerConfigService:
     except RuntimeError:
       return self._execute_save_settings(settings)
 
-  def _execute_save_settings(self, settings: SettingsUpdateDTO) -> None:
+  def _execute_save_settings(self, settings: SaveSettingsCommand) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -95,7 +93,7 @@ class ServerConfigService:
     if self.runtime_state:
       self.runtime_state.reconcile_with_servers(cfg.servers)
 
-  def add_server(self, settings: SettingsUpdateDTO):
+  def add_server(self, settings: SaveSettingsCommand):
     """Appends a new unconfigured server template to configuration."""
     try:
       asyncio.get_running_loop()
@@ -103,7 +101,7 @@ class ServerConfigService:
     except RuntimeError:
       return self._execute_add_server(settings)
 
-  def _execute_add_server(self, settings: SettingsUpdateDTO) -> None:
+  def _execute_add_server(self, settings: SaveSettingsCommand) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
     cfg.api_key = settings.api_key
@@ -119,7 +117,7 @@ class ServerConfigService:
       self.runtime_state.reconcile_with_servers(cfg.servers)
 
   def delete_server(
-      self, identifier: Union[str, int], settings: SettingsUpdateDTO
+      self, identifier: Union[str, int], settings: SaveSettingsCommand
   ):
     """Deletes a server entry and cleans up ephemeral runtime telemetry."""
     try:
@@ -131,7 +129,7 @@ class ServerConfigService:
       return self._execute_delete_server(identifier, settings)
 
   def _execute_delete_server(
-      self, identifier: Union[str, int], settings: SettingsUpdateDTO
+      self, identifier: Union[str, int], settings: SaveSettingsCommand
   ) -> None:
     cfg = self.repo.load()
     cfg.panel_url = settings.panel_url
@@ -152,7 +150,7 @@ class ServerConfigService:
       self,
       identifier: Union[str, int],
       new_name: str,
-      settings: SettingsUpdateDTO,
+      settings: SaveSettingsCommand,
   ) -> bool:
     """Invokes Pterodactyl Panel rename API and synchronizes local configuration."""
     if not new_name:
@@ -300,7 +298,7 @@ class ServerConfigService:
   async def save_single_server(
       self,
       identifier: Union[str, int],
-      data: Union[SingleServerSaveRequest, dict],
+      data: Union[SaveServerCommand, dict],
   ) -> ServerModel:
     """Persists structured configuration changes for an individual server card."""
     async with self._lock:
@@ -312,23 +310,27 @@ class ServerConfigService:
       srv = cfg.servers[idx]
       old_server_id = srv.server_id
 
-      if isinstance(data, SingleServerSaveRequest):
+      if isinstance(data, SaveServerCommand):
         fields = data.model_fields_set
         if "server_id" in fields and data.server_id.strip():
           srv.server_id = data.server_id.strip()
         elif not srv.server_id and data.server_id:
           srv.server_id = data.server_id.strip()
 
-        if "app_id" in fields or data.app_id:
+        if "app_id" in fields:
+          srv.app_id = data.app_id.strip()
+        elif not srv.app_id and data.app_id:
           srv.app_id = data.app_id.strip()
 
-        if "manifest_path" in fields or data.manifest_path:
+        if "manifest_path" in fields:
+          srv.manifest_path = data.manifest_path.strip()
+        elif not srv.manifest_path and data.manifest_path:
           srv.manifest_path = data.manifest_path.strip()
 
-        if "query_port_offset" in fields or data.query_port_offset is not None:
+        if "query_port_offset" in fields:
           srv.query_port_offset = data.query_port_offset
 
-        if "broadcast_command_template" in fields or data.broadcast_command_template:
+        if "broadcast_command_template" in fields:
           srv.broadcast_command_template = (
               data.broadcast_command_template.strip() or "say {message}"
           )

@@ -6,7 +6,7 @@ import httpx
 from app.adapters.discord import DiscordAdapter
 from app.adapters.simulated_steam import SimulatedSteamAdapter
 from app.adapters.steam import SteamAdapter
-from app.core.models import SteamPatchNotes
+from app.core.models import SteamPatchNotes, SteamSearchResult
 from app.core.protocols import SteamGateway
 
 
@@ -78,16 +78,16 @@ class TestSteamAdapterSearch(unittest.IsolatedAsyncioTestCase):
   async def test_search_empty_query_returns_popular_catalog(self):
     results = await self.adapter.search_games("")
     self.assertGreaterEqual(len(results), 5)
-    app_ids = [r["app_id"] for r in results]
+    app_ids = [r.app_id for r in results]
     self.assertIn("2278520", app_ids)  # Enshrouded
     self.assertIn("896660", app_ids)   # Valheim
 
   async def test_search_games_from_catalog(self):
     results = await self.adapter.search_games("enshrouded")
     self.assertGreaterEqual(len(results), 1)
-    enshrouded = next(r for r in results if r["app_id"] == "2278520")
-    self.assertIn("Enshrouded", enshrouded["name"])
-    self.assertEqual(enshrouded["type"], "dedicated_server")
+    enshrouded = next(r for r in results if r.app_id == "2278520")
+    self.assertIn("Enshrouded", enshrouded.name)
+    self.assertEqual(enshrouded.type, "dedicated_server")
 
   async def test_search_games_store_api_fallback_and_mapping(self):
     store_response = {
@@ -101,7 +101,7 @@ class TestSteamAdapterSearch(unittest.IsolatedAsyncioTestCase):
     )
 
     results = await self.adapter.search_games("zomboid")
-    app_ids = [r["app_id"] for r in results]
+    app_ids = [r.app_id for r in results]
     self.assertIn("380870", app_ids)  # Project Zomboid Dedicated Server
 
 
@@ -122,7 +122,7 @@ class TestSimulatedSteamAdapter(unittest.IsolatedAsyncioTestCase):
         {"app_id": "2278520", "name": "Enshrouded"}
     ]
     results = await self.adapter.search_games("enshrouded")
-    self.assertEqual(results, [{"app_id": "2278520", "name": "Enshrouded"}])
+    self.assertEqual(results, [SteamSearchResult(app_id="2278520", name="Enshrouded")])
     self.real_steam.search_games.assert_called_once_with("enshrouded")
 
   def test_simulated_steam_adapter_conforms_to_steam_gateway(self):

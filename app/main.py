@@ -10,7 +10,8 @@ from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.repository import ConfigRepository
 from app.adapters.simulated_steam import SimulatedSteamAdapter
 from app.adapters.steam import SteamAdapter
-from app.core.config import APP_VERSION
+from app.adapters.vcs import resolve_commit_code
+from app.core.config import APP_VERSION, get_commit_code
 from app.services.announcement_service import AnnouncementService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.countdown import CountdownManager
@@ -125,6 +126,10 @@ async def lifespan(application: FastAPI):
     )
 
 
+    commit_code = resolve_commit_code()
+    from app.web.templating import templates
+    templates.env.globals["commit_code"] = commit_code
+
     status_service = StatusAggregationService(
         repository=repo,
         ptero=ptero,
@@ -135,8 +140,10 @@ async def lifespan(application: FastAPI):
         call_tracker=call_tracker,
         runtime_state=runtime_state,
         power_tracker=power_tracker,
+        commit_code=commit_code,
     )
 
+    application.state.commit_code = commit_code
     application.state.repo = repo
     application.state.runtime_state = runtime_state
     application.state.power_tracker = power_tracker
@@ -174,6 +181,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Pterodactyl Multi-Server Monitor", version=APP_VERSION, lifespan=lifespan)
+app.state.commit_code = get_commit_code()
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(web_router)
 

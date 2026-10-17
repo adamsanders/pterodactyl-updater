@@ -1,5 +1,6 @@
 import dataclasses
 import unittest
+import warnings
 
 from app.core.catalogs import (
     GameCatalogEntry,
@@ -167,11 +168,15 @@ class TestCatalogResolvers(unittest.TestCase):
     self.assertEqual(resolve_query_port("custom", 10000, query_port_offset=-50), 9950)
 
   def test_resolve_query_port_zero_offset_falls_back_to_port_offset_map(self):
-    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=0), 2457)
-    self.assertEqual(resolve_query_port("896660", 2456), 2457)
-    self.assertEqual(resolve_query_port(2278520, 15636, query_port_offset=0), 15637)
-    self.assertEqual(resolve_query_port(1829350, 9876, query_port_offset=0), 9877)
-    self.assertEqual(resolve_query_port(294420, 26900, query_port_offset=0), 26901)
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter("always", DeprecationWarning)
+      self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=0), 2457)
+      self.assertEqual(resolve_query_port("896660", 2456), 2457)
+      self.assertEqual(resolve_query_port(2278520, 15636, query_port_offset=0), 15637)
+      self.assertEqual(resolve_query_port(1829350, 9876, query_port_offset=0), 9877)
+      self.assertEqual(resolve_query_port(294420, 26900, query_port_offset=0), 26901)
+      self.assertTrue(any(issubclass(item.category, DeprecationWarning) for item in w))
+      self.assertIn("PORT_OFFSET_MAP fallback is deprecated", str(w[0].message))
 
   def test_resolve_query_port_zero_offset_unmapped_returns_game_port(self):
     self.assertEqual(resolve_query_port(2394010, 8211, query_port_offset=0), 8211)
@@ -187,7 +192,9 @@ class TestCatalogResolvers(unittest.TestCase):
     self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=2), 2458)
     self.assertEqual(resolve_query_port(896660, " 2456 ", query_port_offset=" 3 "), 2459)
     self.assertEqual(resolve_query_port(896660, "invalid_port", query_port_offset=1), 0)
-    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="invalid"), 2457)
+    with warnings.catch_warnings(record=True):
+      warnings.simplefilter("always", DeprecationWarning)
+      self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="invalid"), 2457)
 
   def test_resolve_query_port_out_of_range_clamping(self):
     self.assertEqual(resolve_query_port(896660, 65530, query_port_offset=10), 0)

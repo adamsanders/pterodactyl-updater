@@ -1,7 +1,29 @@
 import time
 from typing import Dict, Optional, Union
+from pydantic import BaseModel, ConfigDict
 from app.core.config import TIMING_CONFIG
-from app.core.models import PowerSignal, PowerState, PowerTrackerEntry
+from app.core.models import PowerSignal, PowerState
+
+
+class PowerTrackerEntry(BaseModel):
+  """Strongly-typed power tracker internal state entry."""
+  raw_state: PowerState = PowerState.UNKNOWN
+  is_transitional: bool = False
+  effective_state: PowerState = PowerState.UNKNOWN
+  last_changed: float = 0.0
+  stable_since: float = 0.0
+  smoothed_state: PowerState = PowerState.UNKNOWN
+  cached_state: PowerState = PowerState.UNKNOWN
+  cache_expires: float = 0.0
+  starting_since: float = 0.0
+  startup_grace_until: float = 0.0
+  stopping_since: float = 0.0
+  stopped_during_start: bool = False
+  restart_lockout_until: float = 0.0
+  consecutive_offline: int = 0
+  just_started: bool = False
+
+  model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class PowerStateTracker:
@@ -90,17 +112,17 @@ class PowerStateTracker:
     if server_id:
       entry = self._states.get(server_id)
       if entry:
-        entry["cache_expires"] = 0.0
+        entry.cache_expires = 0.0
     else:
       for entry in self._states.values():
-        entry["cache_expires"] = 0.0
+        entry.cache_expires = 0.0
 
   def register_signal(
       self, server_id: str, signal: Union[PowerSignal, str]
   ) -> PowerState:
     now = time.time()
     entry = self._get_entry(server_id)
-    prev = PowerState.from_str(entry["smoothed_state"])
+    prev = PowerState.from_str(entry.smoothed_state)
 
     try:
       sig = PowerSignal.from_str(signal)
@@ -108,46 +130,46 @@ class PowerStateTracker:
       sig = None
 
     if sig in (PowerSignal.START, PowerSignal.RESTART):
-      entry["smoothed_state"] = PowerState.STARTING
-      entry["cached_state"] = PowerState.STARTING
-      entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
-      entry["starting_since"] = now
-      entry["startup_grace_until"] = now + self.STARTUP_GRACE_DURATION
-      entry["stopping_since"] = 0.0
-      entry["stopped_during_start"] = False
-      entry["consecutive_offline"] = 0
-      entry["just_started"] = False
+      entry.smoothed_state = PowerState.STARTING
+      entry.cached_state = PowerState.STARTING
+      entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
+      entry.starting_since = now
+      entry.startup_grace_until = now + self.STARTUP_GRACE_DURATION
+      entry.stopping_since = 0.0
+      entry.stopped_during_start = False
+      entry.consecutive_offline = 0
+      entry.just_started = False
       if sig == PowerSignal.RESTART:
-        entry["restart_lockout_until"] = now + self.RESTART_LOCKOUT_DURATION
+        entry.restart_lockout_until = now + self.RESTART_LOCKOUT_DURATION
       self._sync_entry(
           entry, raw=PowerState.STARTING, effective=PowerState.STARTING, now=now
       )
       return PowerState.STARTING
 
     if sig in (PowerSignal.STOP, PowerSignal.KILL):
-      entry["smoothed_state"] = PowerState.STOPPING
-      entry["cached_state"] = PowerState.STOPPING
-      entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
-      entry["stopping_since"] = now
-      entry["stopped_during_start"] = (prev == PowerState.STARTING)
-      entry["starting_since"] = 0.0
-      entry["startup_grace_until"] = 0.0
-      entry["restart_lockout_until"] = 0.0
-      entry["just_started"] = False
+      entry.smoothed_state = PowerState.STOPPING
+      entry.cached_state = PowerState.STOPPING
+      entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
+      entry.stopping_since = now
+      entry.stopped_during_start = (prev == PowerState.STARTING)
+      entry.starting_since = 0.0
+      entry.startup_grace_until = 0.0
+      entry.restart_lockout_until = 0.0
+      entry.just_started = False
       self._sync_entry(
           entry, raw=PowerState.STOPPING, effective=PowerState.STOPPING, now=now
       )
       return PowerState.STOPPING
 
     self._sync_entry(
-        entry, raw=entry.raw_state, effective=entry["smoothed_state"], now=now
+        entry, raw=entry.raw_state, effective=entry.smoothed_state, now=now
     )
-    return entry["smoothed_state"]
+    return entry.smoothed_state
 
   def get_valid_cache(self, server_id: str) -> Optional[PowerState]:
     entry = self._get_entry(server_id)
-    if entry["cache_expires"] > time.time():
-      return entry["cached_state"]
+    if entry.cache_expires > time.time():
+      return entry.cached_state
     return None
 
   def filter_state(
@@ -155,23 +177,23 @@ class PowerStateTracker:
   ) -> PowerState:
     now = time.time()
     entry = self._get_entry(server_id)
-    prev = PowerState.from_str(entry["smoothed_state"])
+    prev = PowerState.from_str(entry.smoothed_state)
     normalized = PowerState.from_str(raw_state)
 
     if normalized == PowerState.UNKNOWN:
-      entry["cached_state"] = (
+      entry.cached_state = (
           prev if prev != PowerState.UNKNOWN else PowerState.UNKNOWN
       )
-      entry["cache_expires"] = now + self._get_ttl(entry["cached_state"])
+      entry.cache_expires = now + self._get_ttl(entry.cached_state)
       return self._return_filtered(
-          entry, raw=normalized, effective=entry["cached_state"], now=now
+          entry, raw=normalized, effective=entry.cached_state, now=now
       )
 
     # Rule 1: Suppress stale "running" reports right after a restart signal
-    if entry["restart_lockout_until"] > now:
+    if entry.restart_lockout_until > now:
       if normalized == PowerState.RUNNING:
-        entry["cached_state"] = PowerState.STARTING
-        entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
+        entry.cached_state = PowerState.STARTING
+        entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
         return self._return_filtered(
             entry, raw=normalized, effective=PowerState.STARTING, now=now
         )
@@ -180,19 +202,19 @@ class PowerStateTracker:
           PowerState.OFFLINE,
           PowerState.STARTING,
       ):
-        entry["restart_lockout_until"] = 0.0
+        entry.restart_lockout_until = 0.0
 
     # Rule 2: Handle telemetry while server is in "stopping"
     if prev == PowerState.STOPPING:
-      stopping_duration = now - entry["stopping_since"]
+      stopping_duration = now - entry.stopping_since
 
       # Clean transition to offline once container exits
       if normalized == PowerState.OFFLINE:
-        entry["smoothed_state"] = PowerState.OFFLINE
-        entry["cached_state"] = PowerState.OFFLINE
-        entry["cache_expires"] = now + self.STEADY_CACHE_TTL
-        entry["stopping_since"] = 0.0
-        entry["stopped_during_start"] = False
+        entry.smoothed_state = PowerState.OFFLINE
+        entry.cached_state = PowerState.OFFLINE
+        entry.cache_expires = now + self.STEADY_CACHE_TTL
+        entry.stopping_since = 0.0
+        entry.stopped_during_start = False
         return self._return_filtered(
             entry, raw=normalized, effective=PowerState.OFFLINE, now=now
         )
@@ -200,38 +222,38 @@ class PowerStateTracker:
       if normalized == PowerState.RUNNING:
         # Special edge case: user clicked Stop while container was booting, and boot script ignored it
         if (
-            entry["stopped_during_start"]
+            entry.stopped_during_start
             and stopping_duration > self.ABORTED_START_STOP_GRACE
         ):
-          entry["smoothed_state"] = PowerState.RUNNING
-          entry["cached_state"] = PowerState.RUNNING
-          entry["cache_expires"] = now + self.STEADY_CACHE_TTL
-          entry["stopping_since"] = 0.0
-          entry["stopped_during_start"] = False
+          entry.smoothed_state = PowerState.RUNNING
+          entry.cached_state = PowerState.RUNNING
+          entry.cache_expires = now + self.STEADY_CACHE_TTL
+          entry.stopping_since = 0.0
+          entry.stopped_during_start = False
           return self._return_filtered(
               entry, raw=normalized, effective=PowerState.RUNNING, now=now
           )
 
         # Normal shutdown: container is still flushing world saves
         if stopping_duration < self.MAX_STOPPING_DURATION:
-          entry["cached_state"] = PowerState.STOPPING
-          entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
+          entry.cached_state = PowerState.STOPPING
+          entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
           return self._return_filtered(
               entry, raw=normalized, effective=PowerState.STOPPING, now=now
           )
 
         # Timed out waiting for stop (exceeded 45s)
-        entry["smoothed_state"] = PowerState.RUNNING
-        entry["cached_state"] = PowerState.RUNNING
-        entry["cache_expires"] = now + self.STEADY_CACHE_TTL
-        entry["stopping_since"] = 0.0
+        entry.smoothed_state = PowerState.RUNNING
+        entry.cached_state = PowerState.RUNNING
+        entry.cache_expires = now + self.STEADY_CACHE_TTL
+        entry.stopping_since = 0.0
         return self._return_filtered(
             entry, raw=normalized, effective=PowerState.RUNNING, now=now
         )
 
       if normalized == PowerState.STOPPING:
-        entry["cached_state"] = PowerState.STOPPING
-        entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
+        entry.cached_state = PowerState.STOPPING
+        entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
         return self._return_filtered(
             entry, raw=normalized, effective=PowerState.STOPPING, now=now
         )
@@ -239,54 +261,54 @@ class PowerStateTracker:
     # Rule 3: Suppress spurious "offline" reports while in "starting"
     if prev == PowerState.STARTING:
       if normalized == PowerState.OFFLINE:
-        entry["consecutive_offline"] += 1
-        in_grace_period = now < entry["startup_grace_until"]
+        entry.consecutive_offline += 1
+        in_grace_period = now < entry.startup_grace_until
         startup_expired = (
-            now - entry["starting_since"]
+            now - entry.starting_since
         ) > self.MAX_STARTUP_DURATION
 
         if (
             in_grace_period
-            or entry["consecutive_offline"]
+            or entry.consecutive_offline
             < self.OFFLINE_CONFIRMATION_THRESHOLD
         ) and not startup_expired:
-          entry["cached_state"] = PowerState.STARTING
-          entry["cache_expires"] = now + self.TRANSITIONAL_CACHE_TTL
+          entry.cached_state = PowerState.STARTING
+          entry.cache_expires = now + self.TRANSITIONAL_CACHE_TTL
           return self._return_filtered(
               entry, raw=normalized, effective=PowerState.STARTING, now=now
           )
       elif normalized in (PowerState.RUNNING, PowerState.STARTING):
-        entry["consecutive_offline"] = 0
+        entry.consecutive_offline = 0
 
     if (
         normalized == PowerState.STARTING
         and prev != PowerState.STARTING
     ):
-      entry["starting_since"] = now
-      entry["startup_grace_until"] = now + self.STARTUP_GRACE_DURATION
-      entry["consecutive_offline"] = 0
+      entry.starting_since = now
+      entry.startup_grace_until = now + self.STARTUP_GRACE_DURATION
+      entry.consecutive_offline = 0
 
     # Rule 4: Instant transition to Online when Wings reports running
     if normalized == PowerState.RUNNING:
       if prev == PowerState.STARTING:
-        entry["just_started"] = True
-      entry["starting_since"] = 0.0
-      entry["startup_grace_until"] = 0.0
-      entry["consecutive_offline"] = 0
+        entry.just_started = True
+      entry.starting_since = 0.0
+      entry.startup_grace_until = 0.0
+      entry.consecutive_offline = 0
 
-    entry["smoothed_state"] = normalized
-    entry["cached_state"] = normalized
-    entry["cache_expires"] = now + self._get_ttl(normalized)
+    entry.smoothed_state = normalized
+    entry.cached_state = normalized
+    entry.cache_expires = now + self._get_ttl(normalized)
     return self._return_filtered(
         entry, raw=normalized, effective=normalized, now=now
     )
 
   def pop_just_started(self, server_id: str) -> bool:
     entry = self._get_entry(server_id)
-    if entry.get("just_started", False):
-      entry["just_started"] = False
+    if entry.just_started:
+      entry.just_started = False
       return True
     return False
 
   def get_tracker_entry(self, server_id: str) -> Optional[PowerTrackerEntry]:
-    return self._states.get(server_id)
+    return self._states.get(server_id)

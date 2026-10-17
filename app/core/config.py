@@ -19,7 +19,7 @@ CONFIG_PATH = os.getenv(
     "/data/config.json" if os.path.exists("/data/config.json") else "config.json",
 )
 
-APP_VERSION = os.getenv("APP_VERSION", "1.27.0")
+APP_VERSION = os.getenv("APP_VERSION", "1.28.0")
 DEFAULT_COMMIT_CODE = "92206dc"
 
 
@@ -84,13 +84,15 @@ class TimingConfig:
 
 TIMING_CONFIG = TimingConfig()
 
-from app.adapters.vcs import resolve_commit_code
-
-
-@functools.lru_cache(maxsize=1)
 def get_commit_code() -> str:
-    """Returns the resolved git commit short hash, lazily cached across calls."""
-    return resolve_commit_code()
+    """Returns the resolved git commit short hash from env or defaults to DEFAULT_COMMIT_CODE."""
+    for env_var in ("COMMIT_SHA", "GIT_COMMIT"):
+        val = os.getenv(env_var, "").strip()
+        if val and val.lower() != "unknown":
+            val = val.replace("commit", "").strip()
+            if len(val) >= 7:
+                return val[:7]
+    return DEFAULT_COMMIT_CODE
 
 
 def __getattr__(name: str) -> Any:
@@ -109,7 +111,6 @@ __all__ = [
     "DEFAULT_COMMIT_CODE",
     "COMMIT_CODE",
     "get_commit_code",
-    "resolve_commit_code",
     "TimingConfig",
     "TIMING_CONFIG",
     "GameCatalogEntry",
@@ -121,3 +122,4 @@ __all__ = [
     "resolve_game_appid",
     "resolve_query_port",
 ]
+

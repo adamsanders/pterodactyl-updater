@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 from app.core.exceptions import ConfigurationError
 from app.core.models import (
     AppConfigModel,
+    DetectedServerDetails,
     PowerSignal,
     ServerModel,
+    SteamSearchResult,
 )
 from app.services.server_service import ServerService
 from app.services.build_simulator import BuildSimulatorStore
@@ -758,15 +760,16 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
   async def test_detect_server_details_delegates_to_pterodactyl_gateway(self):
     cfg = AppConfigModel(panel_url="http://panel.test", api_key="test-key")
     self.repo.load.return_value = cfg
-    self.ptero.detect_server_details.return_value = {
-        "name": "Enshrouded Server",
-        "app_id": "2230650",
-        "manifest_path": "steamapps/appmanifest_2230650.acf",
-    }
+    self.ptero.detect_server_details.return_value = DetectedServerDetails(
+        name="Enshrouded Server",
+        app_id="2230650",
+        manifest_path="steamapps/appmanifest_2230650.acf",
+        detected=True,
+    )
 
     details = await self.service.detect_server_details("srv-enshrouded")
-    self.assertEqual(details["name"], "Enshrouded Server")
-    self.assertEqual(details["app_id"], "2230650")
+    self.assertEqual(details.name, "Enshrouded Server")
+    self.assertEqual(details.app_id, "2230650")
     self.ptero.detect_server_details.assert_called_once_with(
         "http://panel.test", "test-key", "srv-enshrouded"
     )
@@ -779,11 +782,11 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
 
   async def test_search_steam_games_delegates_to_steam_gateway(self):
     self.steam.search_games.return_value = [
-        {"app_id": "2230650", "name": "Enshrouded Dedicated Server", "type": "dedicated_server"}
+        SteamSearchResult(app_id="2230650", name="Enshrouded Dedicated Server", type="dedicated_server")
     ]
     results = await self.service.search_steam_games("enshrouded")
     self.assertEqual(len(results), 1)
-    self.assertEqual(results[0]["app_id"], "2230650")
+    self.assertEqual(results[0].app_id, "2230650")
     self.steam.search_games.assert_called_once_with("enshrouded")
 
 

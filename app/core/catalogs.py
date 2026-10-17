@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+import warnings
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,13 @@ def resolve_query_port(
         aid = int(str(app_id).strip())
     except (ValueError, TypeError):
         return gport
+
+    if aid in PORT_OFFSET_MAP:
+        warnings.warn(
+            "PORT_OFFSET_MAP fallback is deprecated and will be removed in v2.0.0. Configure query_port_offset on the server.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     offset = PORT_OFFSET_MAP.get(aid, 0)
     resolved = gport + offset

@@ -3,7 +3,8 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
-from app.core.config import APP_VERSION, COMMIT_CODE, get_commit_code, resolve_commit_code
+from app.core.config import APP_VERSION, COMMIT_CODE, get_commit_code
+from app.adapters.vcs import resolve_commit_code
 from app.main import app
 from app.core.models import AppConfigModel
 
@@ -12,7 +13,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
 
   def test_app_version_defined_and_formatted(self):
     self.assertIsInstance(APP_VERSION, str)
-    self.assertEqual(APP_VERSION, "1.27.0")
+    self.assertEqual(APP_VERSION, "1.28.0")
     # Check semver pattern (e.g. 1.1.0)
     parts = APP_VERSION.split(".")
     self.assertGreaterEqual(len(parts), 2)
@@ -87,6 +88,7 @@ class TestAppVersionAndCommit(unittest.TestCase):
     app.state.orchestrator = MagicMock()
     app.state.call_tracker = MagicMock()
     app.state.server_service = MagicMock()
+    app.state.commit_code = COMMIT_CODE
 
     client = TestClient(app, raise_server_exceptions=True)
 

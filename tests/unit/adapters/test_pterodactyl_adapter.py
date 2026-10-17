@@ -41,9 +41,9 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-1"
     )
-    self.assertEqual(details["app_id"], "2230650")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2230650.acf")
-    self.assertEqual(details["name"], "My Enshrouded Dedicated Server")
+    self.assertEqual(details.app_id, "2230650")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_2230650.acf")
+    self.assertEqual(details.name, "My Enshrouded Dedicated Server")
 
   async def test_detect_server_details_from_manifest_file(self):
     def fake_get(url, **kwargs):
@@ -66,9 +66,9 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-2"
     )
-    self.assertEqual(details["app_id"], "2394010")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2394010.acf")
-    self.assertEqual(details["name"], "Palworld Server")
+    self.assertEqual(details.app_id, "2394010")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_2394010.acf")
+    self.assertEqual(details.name, "Palworld Server")
 
   async def test_detect_server_details_from_server_name(self):
     def fake_get(url, **kwargs):
@@ -87,9 +87,9 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-3"
     )
-    self.assertEqual(details["app_id"], "896660")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_896660.acf")
-    self.assertEqual(details["name"], "Official Valheim Realm")
+    self.assertEqual(details.app_id, "896660")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_896660.acf")
+    self.assertEqual(details.name, "Official Valheim Realm")
 
   async def test_get_local_build_empty_manifest_or_server_id_returns_clean_error(self):
     build, err = await self.adapter.get_local_build(
@@ -120,8 +120,8 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-enshrouded"
     )
-    self.assertEqual(details["app_id"], "2278520")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2278520.acf")
+    self.assertEqual(details.app_id, "2278520")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_2278520.acf")
 
   async def test_detect_server_details_from_startup_command_flag(self):
     def fake_get(url, **kwargs):
@@ -147,8 +147,8 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-enshrouded"
     )
-    self.assertEqual(details["app_id"], "2278520")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_2278520.acf")
+    self.assertEqual(details.app_id, "2278520")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_2278520.acf")
 
   async def test_detect_server_details_preserves_detected_appid_when_1007_is_in_files(self):
     def fake_get(url, **kwargs):
@@ -177,8 +177,8 @@ class TestPterodactylAdapterDetailsDetection(unittest.IsolatedAsyncioTestCase):
     details = await self.adapter.detect_server_details(
         "http://panel.test", "key", "srv-valheim"
     )
-    self.assertEqual(details["app_id"], "896660")
-    self.assertEqual(details["manifest_path"], "steamapps/appmanifest_896660.acf")
+    self.assertEqual(details.app_id, "896660")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_896660.acf")
 
 
 if __name__ == "__main__":

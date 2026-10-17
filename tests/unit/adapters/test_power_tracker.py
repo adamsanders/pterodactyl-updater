@@ -25,16 +25,16 @@ class TestPowerStateTracker(unittest.TestCase):
       self.assertEqual(self.tracker.get_valid_cache("srv1"), "starting")
 
       entry = self.tracker._get_entry("srv1")
-      self.assertEqual(entry["starting_since"], now)
-      self.assertEqual(entry["startup_grace_until"], now + TIMING_CONFIG.startup_grace_duration)
-      self.assertEqual(entry["restart_lockout_until"], 0.0)
+      self.assertEqual(entry.starting_since, now)
+      self.assertEqual(entry.startup_grace_until, now + TIMING_CONFIG.startup_grace_duration)
+      self.assertEqual(entry.restart_lockout_until, 0.0)
 
     # Restart signal sets restart lockout
     with patch("time.time", return_value=now + 1.0):
       state = self.tracker.register_signal("srv1", "restart")
       self.assertEqual(state, "starting")
       entry = self.tracker._get_entry("srv1")
-      self.assertEqual(entry["restart_lockout_until"], now + 1.0 + TIMING_CONFIG.restart_lockout_duration)
+      self.assertEqual(entry.restart_lockout_until, now + 1.0 + TIMING_CONFIG.restart_lockout_duration)
 
   def test_register_signal_stop_and_kill(self):
     now = time.time()
@@ -44,15 +44,15 @@ class TestPowerStateTracker(unittest.TestCase):
       self.assertEqual(self.tracker.get_valid_cache("srv1"), "stopping")
 
       entry = self.tracker._get_entry("srv1")
-      self.assertEqual(entry["stopping_since"], now)
-      self.assertFalse(entry["stopped_during_start"])
+      self.assertEqual(entry.stopping_since, now)
+      self.assertFalse(entry.stopped_during_start)
 
     # If stopped while container was starting
-    self.tracker._get_entry("srv1")["smoothed_state"] = "starting"
+    self.tracker._get_entry("srv1").smoothed_state = PowerState.STARTING
     with patch("time.time", return_value=now + 2.0):
       self.tracker.register_signal("srv1", "kill")
       entry = self.tracker._get_entry("srv1")
-      self.assertTrue(entry["stopped_during_start"])
+      self.assertTrue(entry.stopped_during_start)
 
   def test_restart_lockout_suppresses_stale_running_reports(self):
     now = time.time()
@@ -86,7 +86,7 @@ class TestPowerStateTracker(unittest.TestCase):
 
   def test_aborted_start_stop_recovery_edge_case(self):
     now = time.time()
-    self.tracker._get_entry("srv1")["smoothed_state"] = "starting"
+    self.tracker._get_entry("srv1").smoothed_state = PowerState.STARTING
     with patch("time.time", return_value=now):
       self.tracker.register_signal("srv1", "stop")
 
@@ -196,11 +196,11 @@ class TestPowerStateTracker(unittest.TestCase):
 
     s2 = self.tracker.register_signal("srv_rapid", PowerSignal.STOP)
     self.assertIs(s2, PowerState.STOPPING)
-    self.assertTrue(self.tracker._get_entry("srv_rapid")["stopped_during_start"])
+    self.assertTrue(self.tracker._get_entry("srv_rapid").stopped_during_start)
 
     s3 = self.tracker.register_signal("srv_rapid", PowerSignal.START)
     self.assertIs(s3, PowerState.STARTING)
-    self.assertFalse(self.tracker._get_entry("srv_rapid")["stopped_during_start"])
+    self.assertFalse(self.tracker._get_entry("srv_rapid").stopped_during_start)
 
     # Wings reports running -> transitions immediately to RUNNING with just_started flag
     f = self.tracker.filter_state("srv_rapid", PowerState.RUNNING)

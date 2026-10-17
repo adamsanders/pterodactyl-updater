@@ -8,7 +8,7 @@ import os
 import subprocess
 from typing import Optional
 
-DEFAULT_COMMIT_CODE = "92206dc"
+from app.core.config import DEFAULT_COMMIT_CODE
 
 
 def resolve_commit_code(default: str = DEFAULT_COMMIT_CODE) -> str:

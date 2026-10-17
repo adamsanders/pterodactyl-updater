@@ -259,44 +259,33 @@ class TestTypedRouteSchemas(unittest.TestCase):
 
 
 class TestWebDTORelocationAndReExports(unittest.TestCase):
-  """Verifies web DTOs live in app.web.schemas and can be re-exported via app.core.models with warning."""
+  """Verifies web DTOs live in app.web.schemas and inherit from domain commands, with no circular imports in app.core.models."""
 
   def test_web_dto_classes_in_web_schemas(self):
-    self.assertTrue(issubclass(SingleServerSaveRequest, object))
-    self.assertTrue(issubclass(SettingsUpdateDTO, object))
-    self.assertTrue(issubclass(WebhookPreview, object))
+    from app.core.models import NotificationPreview, SaveServerCommand, SaveSettingsCommand
+    self.assertTrue(issubclass(SingleServerSaveRequest, SaveServerCommand))
+    self.assertTrue(issubclass(SettingsUpdateDTO, SaveSettingsCommand))
+    self.assertTrue(issubclass(WebhookPreview, NotificationPreview))
 
-  def test_backward_compatible_forwarding_from_core_models(self):
-    import app.core.models as core_models
-
-    with warnings.catch_warnings(record=True) as recorded_warnings:
-      warnings.simplefilter("always")
-      forwarded_save = getattr(core_models, "SingleServerSaveRequest")
-      forwarded_dto = getattr(core_models, "SettingsUpdateDTO")
-      forwarded_preview = getattr(core_models, "WebhookPreview")
-
-      self.assertIs(forwarded_save, SingleServerSaveRequest)
-      self.assertIs(forwarded_dto, SettingsUpdateDTO)
-      self.assertIs(forwarded_preview, WebhookPreview)
-
-      deprecation_warnings = [
-          w for w in recorded_warnings if issubclass(w.category, DeprecationWarning)
-      ]
-      self.assertEqual(len(deprecation_warnings), 3)
-
-  def test_core_models_dir_includes_forwarded_dtos(self):
-    import app.core.models as core_models
-
-    dir_entries = dir(core_models)
-    self.assertIn("SingleServerSaveRequest", dir_entries)
-    self.assertIn("SettingsUpdateDTO", dir_entries)
-    self.assertIn("WebhookPreview", dir_entries)
-
-  def test_core_models_raises_attribute_error_for_unknown(self):
+  def test_core_models_does_not_forward_web_schemas(self):
     import app.core.models as core_models
 
     with self.assertRaises(AttributeError):
-      _ = core_models.NonExistentModel
+      _ = core_models.SingleServerSaveRequest
+    with self.assertRaises(AttributeError):
+      _ = core_models.SettingsUpdateDTO
+    with self.assertRaises(AttributeError):
+      _ = core_models.WebhookPreview
+
+  def test_core_models_exports_domain_commands(self):
+    import app.core.models as core_models
+
+    dir_entries = dir(core_models)
+    self.assertIn("SaveServerCommand", dir_entries)
+    self.assertIn("SaveSettingsCommand", dir_entries)
+    self.assertIn("NotificationPreview", dir_entries)
+    self.assertNotIn("SingleServerSaveRequest", dir_entries)
+    self.assertNotIn("SettingsUpdateDTO", dir_entries)
 
 
 class TestTemplateRendering(unittest.TestCase):

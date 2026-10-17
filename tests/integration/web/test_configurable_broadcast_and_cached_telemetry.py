@@ -164,7 +164,7 @@ class TestStatusAggregationServiceTelemetryCaching(unittest.IsolatedAsyncioTestC
     )
 
   async def test_telemetry_cache_suppresses_rapid_successive_queries(self):
-    srv = ServerModel(name="Valheim", server_id="srv-1", app_id="896660")
+    srv = ServerModel(name="Valheim", server_id="srv-1", app_id="896660", query_port_offset=1)
     cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[srv])
     self.repo.load.return_value = cfg
     self.ptero.get_external_ip.return_value = "1.2.3.4"
@@ -196,7 +196,7 @@ class TestStatusAggregationServiceTelemetryCaching(unittest.IsolatedAsyncioTestC
     self.assertEqual(self.a2s.get_player_count.call_count, 2)
 
   async def test_telemetry_cache_reflects_real_time_power_tracker_state(self):
-    srv = ServerModel(name="Valheim", server_id="srv-1", app_id="896660")
+    srv = ServerModel(name="Valheim", server_id="srv-1", app_id="896660", query_port_offset=1)
     cfg = AppConfigModel(panel_url="http://panel.test", api_key="key", servers=[srv])
     self.repo.load.return_value = cfg
     self.ptero.get_external_ip.return_value = "1.2.3.4"

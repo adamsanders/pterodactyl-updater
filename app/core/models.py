@@ -14,13 +14,6 @@ from app.core.exceptions import (
 )
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
-if TYPE_CHECKING:
-  from app.web.schemas import (  # noqa: F401
-      SettingsUpdateDTO,
-      SingleServerSaveRequest,
-      WebhookPreview,
-  )
-
 try:
     from enum import StrEnum
 except ImportError:
@@ -119,22 +112,21 @@ class PlayerMetrics(NamedTuple):
 
 def _raise_domain_error(
     err_msg: str,
-    status_code: Optional[int],
-    error_type: Optional[str],
+    status_code: Optional[int] = None,
+    error_type: Optional[str] = None,
     exc_cls: Optional[type[DomainError]] = None,
     server_id: Optional[str] = None,
 ) -> None:
   """Centralized structured error dispatcher eliminating regex string scraping across domain results."""
   effective_sc = status_code
   if exc_cls is not None:
-    if issubclass(exc_cls, PterodactylApiError):
+    try:
       raise exc_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
-    if hasattr(exc_cls, "status_code"):
+    except TypeError:
       try:
-        raise exc_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
+        raise exc_cls(err_msg, status_code=effective_sc or 400)
       except TypeError:
-        pass
-    raise exc_cls(err_msg)
+        raise exc_cls(err_msg)
 
   # 5xx Server Errors or explicit 5xx overrides always map to PterodactylApiError
   if effective_sc is not None and effective_sc >= 500:
@@ -156,8 +148,8 @@ def _raise_domain_error(
   if error_type == "ConfigurationError":
     raise ConfigurationError(err_msg, status_code=effective_sc or 400)
 
-  # Safe fallback to generic domain exception
-  raise PterodactylApiError(err_msg, status_code=effective_sc or 400, server_id=server_id)
+  # Safe fallback to standard domain error (ensuring vendor-specific exceptions are only raised for external Pterodactyl API failures)
+  raise DomainError(err_msg, status_code=effective_sc or 400)
 
 
 class LocalBuildResult(NamedTuple):
@@ -489,23 +481,9 @@ class DetectedServerDetails(BaseModel):
 
   model_config = ConfigDict(populate_by_name=True)
 
-  def __getitem__(self, item: str) -> Any:
-    if hasattr(self, item):
-      return getattr(self, item)
-    raise KeyError(item)
-
-  def get(self, item: str, default: Any = None) -> Any:
-    if hasattr(self, item):
-      val = getattr(self, item)
-      return val if val is not None else default
-    return default
-
-  def __contains__(self, item: str) -> bool:
-    return hasattr(self, item)
-
 
 class SteamSearchResult(BaseModel):
-  """Strongly-typed Steam search result model supporting dictionary access."""
+  """Strongly-typed Steam search result model."""
   app_id: str
   name: str
   type: Optional[str] = None
@@ -525,87 +503,33 @@ class SteamSearchResult(BaseModel):
   def appid(self) -> str:
     return self.app_id
 
-  def __getitem__(self, item: str) -> Any:
-    if item == "appid":
-      return self.app_id
-    if hasattr(self, item):
-      return getattr(self, item)
-    raise KeyError(item)
 
-  def get(self, item: str, default: Any = None) -> Any:
-    if item == "appid":
-      return self.app_id
-    if hasattr(self, item):
-      val = getattr(self, item)
-      return val if val is not None else default
-    return default
-
-  def __contains__(self, item: str) -> bool:
-    if item == "appid":
-      return True
-    return hasattr(self, item)
-
-  def __eq__(self, other: Any) -> bool:
-    if isinstance(other, dict):
-      other_id = other.get("app_id") or other.get("appid")
-      return str(self.app_id) == str(other_id) and self.name == other.get("name")
-    return super().__eq__(other)
+class SaveSettingsCommand(BaseModel):
+  """Domain command encapsulating the update of application settings."""
+  panel_url: str = ""
+  api_key: str = ""
+  check_interval: int = Field(default=15, ge=1, le=1440)
+  discord_webhook: str = ""
+  test_mode: bool = False
+  ssl_verify: bool = False
+  servers: List[ServerModel] = Field(default_factory=list)
 
 
-class PowerTrackerEntry(BaseModel):
-  """Strongly-typed power tracker internal state entry."""
-  raw_state: PowerState = PowerState.UNKNOWN
-  is_transitional: bool = False
-  effective_state: PowerState = PowerState.UNKNOWN
-  last_changed: float = 0.0
-  stable_since: float = 0.0
-  smoothed_state: PowerState = PowerState.UNKNOWN
-  cached_state: PowerState = PowerState.UNKNOWN
-  cache_expires: float = 0.0
-  starting_since: float = 0.0
-  startup_grace_until: float = 0.0
-  stopping_since: float = 0.0
-  stopped_during_start: bool = False
-  restart_lockout_until: float = 0.0
-  consecutive_offline: int = 0
-  just_started: bool = False
-
-  model_config = ConfigDict(arbitrary_types_allowed=True)
-
-  def __getitem__(self, item: str) -> Any:
-    if hasattr(self, item):
-      return getattr(self, item)
-    raise KeyError(item)
-
-  def __setitem__(self, key: str, value: Any) -> None:
-    setattr(self, key, value)
-
-  def get(self, item: str, default: Any = None) -> Any:
-    if hasattr(self, item):
-      val = getattr(self, item)
-      return val if val is not None else default
-    return default
-
-  def __contains__(self, item: str) -> bool:
-    return hasattr(self, item)
+class SaveServerCommand(BaseModel):
+  """Domain command encapsulating the update of an individual server configuration."""
+  name: str = ""
+  server_id: str = ""
+  app_id: str = ""
+  manifest_path: str = ""
+  query_port_offset: int = 0
+  broadcast_command_template: str = "say {message}"
 
 
-# Backward-compatible forwarding re-exports for Presentation/Web DTOs
-# (Relocated to app.web.schemas in Milestone 8 / v1.25.0)
-def __getattr__(name: str) -> Any:
-  if name in ("SettingsUpdateDTO", "SingleServerSaveRequest", "WebhookPreview"):
-    import warnings
-    warnings.warn(
-        f"{name} has been relocated to app.web.schemas as part of domain purification. "
-        f"Importing {name} from app.core.models is deprecated and will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    import app.web.schemas as _schemas
-    return getattr(_schemas, name)
-  raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+class NotificationPreview(BaseModel):
+  """Pure domain model representing notification preview data."""
+  server_name: str
+  message: str
+  embed: Optional[dict] = None
+  timestamp: str
 
-
-def __dir__() -> list[str]:
-  return sorted(list(globals().keys()) + ["SettingsUpdateDTO", "SingleServerSaveRequest", "WebhookPreview"])
 

@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock
+import warnings
 
 from app.core.catalogs import PORT_OFFSET_MAP, resolve_query_port
 from app.core.config import APP_VERSION, COMMIT_CODE
@@ -35,7 +36,7 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     )
 
   async def test_get_status_snapshot_structure(self):
-    srv = ServerModel(name="Valheim Alpha", server_id="srv_valheim_1", app_id="896660")
+    srv = ServerModel(name="Valheim Alpha", server_id="srv_valheim_1", app_id="896660", query_port_offset=1)
     cfg = AppConfigModel(
         panel_url="http://panel.example.com",
         api_key="ptlc_key",
@@ -239,7 +240,12 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.a2s.get_player_count.return_value = (3, 10)
     self.preview_store.get_preview.return_value = None
 
-    snapshot = await self.service.get_status_snapshot()
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter("always", DeprecationWarning)
+      snapshot = await self.service.get_status_snapshot()
+      self.assertTrue(any(issubclass(item.category, DeprecationWarning) for item in w))
+      self.assertIn("PORT_OFFSET_MAP fallback is deprecated", str(w[0].message))
+
     server_data = snapshot["servers"][0]
     self.assertEqual(server_data["port"], 2456)
     # Valheim offset in PORT_OFFSET_MAP is 1 -> 2456 + 1 = 2457
@@ -331,15 +337,19 @@ class TestResolveQueryPort(unittest.TestCase):
     self.assertEqual(resolve_query_port("custom", 10000, query_port_offset=-50), 9950)
 
   def test_resolve_query_port_zero_offset_falls_back_to_port_offset_map(self):
-    # Valheim
-    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=0), 2457)
-    self.assertEqual(resolve_query_port("896660", 2456), 2457)
-    # Enshrouded
-    self.assertEqual(resolve_query_port(2278520, 15636, query_port_offset=0), 15637)
-    # V Rising
-    self.assertEqual(resolve_query_port(1829350, 9876, query_port_offset=0), 9877)
-    # 7 Days to Die
-    self.assertEqual(resolve_query_port(294420, 26900, query_port_offset=0), 26901)
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter("always", DeprecationWarning)
+      # Valheim
+      self.assertEqual(resolve_query_port(896660, 2456, query_port_offset=0), 2457)
+      self.assertEqual(resolve_query_port("896660", 2456), 2457)
+      # Enshrouded
+      self.assertEqual(resolve_query_port(2278520, 15636, query_port_offset=0), 15637)
+      # V Rising
+      self.assertEqual(resolve_query_port(1829350, 9876, query_port_offset=0), 9877)
+      # 7 Days to Die
+      self.assertEqual(resolve_query_port(294420, 26900, query_port_offset=0), 26901)
+      self.assertTrue(any(issubclass(item.category, DeprecationWarning) for item in w))
+      self.assertIn("PORT_OFFSET_MAP fallback is deprecated", str(w[0].message))
 
   def test_resolve_query_port_zero_offset_unmapped_returns_game_port(self):
     self.assertEqual(resolve_query_port(2394010, 8211, query_port_offset=0), 8211)
@@ -353,11 +363,15 @@ class TestResolveQueryPort(unittest.TestCase):
   def test_resolve_query_port_string_offset(self):
     self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="3"), 2459)
     # Invalid string offset falls back to 0 -> fallback to PORT_OFFSET_MAP (Valheim +1)
-    self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="invalid"), 2457)
+    with warnings.catch_warnings(record=True):
+      warnings.simplefilter("always", DeprecationWarning)
+      self.assertEqual(resolve_query_port(896660, 2456, query_port_offset="invalid"), 2457)
 
   def test_resolve_query_port_string_game_port(self):
     self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=2), 2458)
-    self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=0), 2457)
+    with warnings.catch_warnings(record=True):
+      warnings.simplefilter("always", DeprecationWarning)
+      self.assertEqual(resolve_query_port(896660, "2456", query_port_offset=0), 2457)
     self.assertEqual(resolve_query_port(896660, " 2456 ", query_port_offset=" 3 "), 2459)
     self.assertEqual(resolve_query_port(896660, "0", query_port_offset=1), 0)
     self.assertEqual(resolve_query_port(896660, "", query_port_offset=1), 0)

@@ -9,7 +9,6 @@ from app.core.models import (
     PlayerMetrics,
     PowerSignal,
     PowerState,
-    PowerTrackerEntry,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
@@ -226,6 +225,11 @@ A2SGateway = PlayerQueryGateway
 @runtime_checkable
 class NotificationGateway(Protocol):
 
+  def create_patchnotes_embed(
+      self, notes: Union[SteamPatchNotes, dict]
+  ) -> dict[str, Any]:
+    ...
+
   async def send_notification(
       self,
       webhook_url: str,
@@ -288,7 +292,42 @@ class PowerTrackerGateway(Protocol):
   def pop_just_started(self, server_id: str) -> bool:
     ...
 
-  def get_tracker_entry(self, server_id: str) -> Optional[PowerTrackerEntry]:
+
+# Backward compatibility alias
+PowerStateTrackerProtocol = PowerTrackerGateway
+
+
+@runtime_checkable
+class BuildSimulatorProtocol(Protocol):
+  """Protocol for managing simulated SteamCMD build IDs during test mode."""
+
+  def set_simulated_build(self, server_id: str, build_id: str) -> None:
+    ...
+
+  def get_simulated_build(self, server_id: str) -> Optional[str]:
+    ...
+
+  def has_simulated_build(self, server_id: str) -> bool:
+    ...
+
+  def clear_simulated_build(self, server_id: Optional[str] = None) -> None:
+    ...
+
+
+@runtime_checkable
+class WebhookPreviewStoreProtocol(Protocol):
+  """Protocol for managing in-memory webhook preview payloads."""
+
+  def set_preview(self, preview: Any) -> None:
+    ...
+
+  def get_preview(self) -> Optional[Any]:
+    ...
+
+  def clear(self) -> None:
+    ...
+
+  def consume_preview(self) -> Optional[Any]:
     ...
 
 

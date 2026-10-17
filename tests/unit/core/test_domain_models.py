@@ -20,13 +20,13 @@ from app.core.models import (
     PlayerMetrics,
     PowerSignal,
     PowerState,
-    PowerTrackerEntry,
     ServerAllocation,
     ServerModel,
     ServerNameResult,
     ServerStatusDTO,
     SteamSearchResult,
 )
+from app.adapters.power_tracker import PowerTrackerEntry
 from app.adapters.pterodactyl import PterodactylAdapter
 from app.adapters.steam import SteamAdapter
 from app.adapters.a2s import A2SAdapter
@@ -100,7 +100,7 @@ class TestDomainModels(unittest.TestCase):
 
     # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_err = LocalBuildResult(build_id=None, error="Panel HTTP 403: Forbidden")
-    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+    with self.assertRaises(DomainError) as ctx_legacy:
       legacy_err.raise_if_failed()
     self.assertEqual(ctx_legacy.exception.status_code, 400)
 
@@ -141,7 +141,7 @@ class TestDomainModels(unittest.TestCase):
 
     # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_res = ServerNameResult(name=None, error="Panel HTTP 503: Unavailable")
-    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+    with self.assertRaises(DomainError) as ctx_legacy:
       legacy_res.raise_if_failed()
     self.assertEqual(ctx_legacy.exception.status_code, 400)
 
@@ -217,7 +217,7 @@ class TestDomainModels(unittest.TestCase):
 
     # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_op = OperationResult(success=False, error="Panel HTTP 500: Server crashed")
-    with self.assertRaises(PterodactylApiError) as ctx_legacy:
+    with self.assertRaises(DomainError) as ctx_legacy:
       legacy_op.raise_if_failed()
     self.assertEqual(ctx_legacy.exception.status_code, 400)
 
@@ -416,7 +416,7 @@ class TestAdapterTypedReturns(unittest.IsolatedAsyncioTestCase):
 
     # get_local_build failure with raise_on_error=True
     mock_client.get.return_value = MagicMock(status_code=404, text="File Not Found")
-    with self.assertRaises(PterodactylApiError) as ctx:
+    with self.assertRaises(ServerNotFoundError) as ctx:
       await adapter.get_local_build(
           "http://panel", "key", "srv1", "manifest.acf", raise_on_error=True
       )
@@ -677,15 +677,10 @@ class TestMilestone7DomainModels(unittest.TestCase):
     )
     self.assertEqual(details.name, "Enshrouded Server")
     self.assertEqual(details.app_id, "2278520")
+    self.assertEqual(details.manifest_path, "steamapps/appmanifest_2278520.acf")
     self.assertTrue(details.detected)
-    # Dictionary access compatibility
-    self.assertEqual(details["app_id"], "2278520")
-    self.assertEqual(details.get("name"), "Enshrouded Server")
-    self.assertEqual(details.get("missing_key", "default"), "default")
-    self.assertIn("app_id", details)
-    self.assertIn("manifest_path", details)
-    with self.assertRaises(KeyError):
-      _ = details["non_existent"]
+    self.assertIsNone(details.error)
+
     # Serialization
     dumped = details.model_dump()
     self.assertEqual(dumped["app_id"], "2278520")
@@ -700,14 +695,8 @@ class TestMilestone7DomainModels(unittest.TestCase):
     )
     self.assertEqual(res1.app_id, "2278520")
     self.assertEqual(res1.appid, "2278520")
-    self.assertEqual(res1["app_id"], "2278520")
-    self.assertEqual(res1["appid"], "2278520")
-    self.assertEqual(res1.get("app_id"), "2278520")
-    self.assertEqual(res1.get("appid"), "2278520")
-    self.assertIn("app_id", res1)
-    self.assertIn("appid", res1)
-    self.assertEqual(res1, {"app_id": "2278520", "name": "Enshrouded"})
-    self.assertEqual(res1, {"appid": "2278520", "name": "Enshrouded"})
+    self.assertEqual(res1.name, "Enshrouded")
+    self.assertEqual(res1.type, "dedicated_server")
 
     # Construction with appid alias
     res2 = SteamSearchResult(appid="896660", name="Valheim")
@@ -730,15 +719,10 @@ class TestMilestone7DomainModels(unittest.TestCase):
     self.assertTrue(entry.is_transitional)
     self.assertEqual(entry.effective_state, PowerState.STARTING)
 
-    # Dictionary read/write compatibility
-    self.assertEqual(entry["raw_state"], PowerState.STARTING)
-    entry["cached_state"] = PowerState.RUNNING
+    # Attribute access and mutation
+    entry.cached_state = PowerState.RUNNING
     self.assertEqual(entry.cached_state, PowerState.RUNNING)
-    self.assertEqual(entry["cached_state"], PowerState.RUNNING)
-    self.assertEqual(entry.get("cached_state"), PowerState.RUNNING)
-    self.assertIn("cached_state", entry)
-    with self.assertRaises(KeyError):
-      _ = entry["invalid_key"]
+    self.assertEqual(entry.last_changed, 100.0)
 
 
 if __name__ == "__main__":

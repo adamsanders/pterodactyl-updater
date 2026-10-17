@@ -1,18 +1,17 @@
 from datetime import datetime
+import inspect
 import logging
 from typing import Optional, Union
-from app.adapters.discord import DiscordAdapter
 from app.core.config import TIMING_CONFIG
 from app.core.exceptions import NotificationError
-from app.core.models import ServerModel, SteamPatchNotes
-from app.web.schemas import WebhookPreview
+from app.core.models import NotificationPreview, ServerModel, SteamPatchNotes
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     NotificationGateway,
     PterodactylManagementGateway,
     SteamGateway,
+    WebhookPreviewStoreProtocol,
 )
-from app.services.preview_store import WebhookPreviewStore
 
 logger = logging.getLogger("updater.announcements")
 
@@ -26,7 +25,7 @@ class AnnouncementService:
       ptero: PterodactylManagementGateway,
       steam: Optional[SteamGateway] = None,
       discord: Optional[NotificationGateway] = None,
-      preview_store: Optional[WebhookPreviewStore] = None,
+      preview_store: Optional[WebhookPreviewStoreProtocol] = None,
   ):
     self.repo = repository
     self.ptero = ptero
@@ -99,10 +98,10 @@ class AnnouncementService:
     msg = f"🧪 **[TEST ALERT]** Testing webhook dispatch for **{server.name}**."
 
     if cfg.test_mode:
-      embed_dict = DiscordAdapter.create_patchnotes_embed(embed) if embed else None
+      embed_dict = self._format_embed(embed)
       if self.preview_store:
         self.preview_store.set_preview(
-            WebhookPreview(
+            NotificationPreview(
                 server_name=server.name,
                 message=msg,
                 embed=embed_dict,
@@ -121,6 +120,25 @@ class AnnouncementService:
     else:
       return False, "Error: No Discord Webhook configured"
 
+  def _format_embed(
+      self, embed: Optional[Union[dict, SteamPatchNotes]]
+  ) -> Optional[dict]:
+    if not embed:
+      return None
+    if self.discord and hasattr(self.discord, "create_patchnotes_embed"):
+      res = self.discord.create_patchnotes_embed(embed)
+      if inspect.iscoroutine(res):
+        res.close()
+      else:
+        return res
+    if isinstance(embed, dict):
+      return embed
+    if hasattr(embed, "to_embed"):
+      return embed.to_embed()
+    if hasattr(embed, "model_dump"):
+      return embed.model_dump()
+    return {}
+
   async def dispatch_notification(
       self,
       server_name: str,
@@ -130,11 +148,11 @@ class AnnouncementService:
       webhook_url: str = "",
   ) -> None:
     """Dispatches payload to live Discord webhook or the in-memory test simulator preview."""
-    embed_dict = DiscordAdapter.create_patchnotes_embed(embed) if embed else None
+    embed_dict = self._format_embed(embed)
     if test_mode:
       if self.preview_store:
         self.preview_store.set_preview(
-            WebhookPreview(
+            NotificationPreview(
                 server_name=server_name,
                 message=message,
                 embed=embed_dict,

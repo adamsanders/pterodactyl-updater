@@ -339,3 +339,23 @@ class TestServerConfigService(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(repo.max_concurrent_writers, 1)
     self.assertEqual(repo.cfg.servers[0].name, "Init")
     self.assertTrue(repo.cfg.servers[0].auto_restart)
+
+  async def test_save_single_server_partial_command_preserves_unmodified_fields(self):
+    from app.web.schemas import SingleServerSaveRequest
+    srv = ServerModel(
+        name="Init Name",
+        server_id="srv-partial",
+        app_id="896660",
+        manifest_path="steamapps/appmanifest_896660.acf",
+        query_port_offset=1,
+    )
+    self.repo.load.return_value = AppConfigModel(servers=[srv])
+
+    req = SingleServerSaveRequest(name="Updated Name")
+    cmd = req.to_command()
+    saved = await self.service.save_single_server("srv-partial", cmd)
+
+    self.assertEqual(saved.name, "Updated Name")
+    self.assertEqual(saved.app_id, "896660")
+    self.assertEqual(saved.manifest_path, "steamapps/appmanifest_896660.acf")
+    self.assertEqual(saved.query_port_offset, 1)

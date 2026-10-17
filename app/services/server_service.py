@@ -8,14 +8,14 @@ from app.core.models import (
     OperationResult,
     PowerSignal,
     PowerState,
+    SaveServerCommand,
+    SaveSettingsCommand,
     ServerModel,
     ServerUpdateStatus,
     SteamSearchResult,
 )
-
-if TYPE_CHECKING:
-  from app.web.schemas import SettingsUpdateDTO, SingleServerSaveRequest
 from app.core.protocols import (
+    BuildSimulatorProtocol,
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
     NotificationGateway,
@@ -23,10 +23,9 @@ from app.core.protocols import (
     RuntimeStateStoreProtocol,
     SteamGateway,
     UpdateOrchestratorProtocol,
+    WebhookPreviewStoreProtocol,
 )
 from app.services.announcement_service import AnnouncementService
-from app.services.build_simulator import BuildSimulatorStore
-from app.services.preview_store import WebhookPreviewStore
 from app.services.server_config_service import ServerConfigService
 from app.services.server_power_service import ServerPowerService
 
@@ -41,11 +40,11 @@ class ServerService:
       repository: ConfigRepositoryProtocol,
       ptero: PterodactylGateway,
       steam: SteamGateway,
-      simulator_store: BuildSimulatorStore,
+      simulator_store: BuildSimulatorProtocol,
       countdown: CountdownManagerProtocol,
       announcements: Optional[AnnouncementService] = None,
       discord: Optional[NotificationGateway] = None,
-      preview_store: Optional[WebhookPreviewStore] = None,
+      preview_store: Optional[WebhookPreviewStoreProtocol] = None,
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
       orchestrator: Optional[UpdateOrchestratorProtocol] = None,
       config_service: Optional[ServerConfigService] = None,
@@ -98,13 +97,13 @@ class ServerService:
     return self.announcements.discord
 
   @property
-  def preview_store(self) -> Optional[WebhookPreviewStore]:
+  def preview_store(self) -> Optional[WebhookPreviewStoreProtocol]:
     return self.announcements.preview_store
 
-  def save_settings(self, settings: "SettingsUpdateDTO"):
+  def save_settings(self, settings: SaveSettingsCommand):
     return self.config_service.save_settings(settings)
 
-  def add_server(self, settings: "SettingsUpdateDTO"):
+  def add_server(self, settings: SaveSettingsCommand):
     return self.config_service.add_server(settings)
 
   def find_server_index(
@@ -115,7 +114,7 @@ class ServerService:
     return self.config_service.find_server_index(servers_or_identifier, identifier)
 
   def delete_server(
-      self, identifier: Union[str, int], settings: "SettingsUpdateDTO"
+      self, identifier: Union[str, int], settings: SaveSettingsCommand
   ):
     return self.config_service.delete_server(identifier, settings)
 
@@ -123,7 +122,7 @@ class ServerService:
       self,
       identifier: Union[str, int],
       new_name: str,
-      settings: "SettingsUpdateDTO",
+      settings: SaveSettingsCommand,
   ) -> bool:
     return await self.config_service.rename_server(identifier, new_name, settings)
 
@@ -236,7 +235,7 @@ class ServerService:
   async def save_single_server(
       self,
       identifier: Union[str, int],
-      data: Union["SingleServerSaveRequest", dict],
+      data: Union[SaveServerCommand, dict],
   ) -> ServerModel:
     return await self.config_service.save_single_server(identifier, data)
 

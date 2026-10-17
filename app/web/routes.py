@@ -78,13 +78,19 @@ async def dashboard(
 
   preview = preview_store.get_preview() if preview_store else None
 
+  commit_code = (
+      getattr(request.app.state, "commit_code", None)
+      if hasattr(request, "app") and hasattr(request.app, "state")
+      else None
+  ) or COMMIT_CODE
+
   vm = DashboardViewModel.from_domain(
       config=cfg,
       runtime_states=runtime_states,
       countdown=countdown,
       last_check=last_check,
       app_version=APP_VERSION,
-      commit_code=COMMIT_CODE,
+      commit_code=commit_code,
       preview=preview,
   )
 
@@ -243,7 +249,7 @@ async def save_single_server_route(
     payload: SingleServerSaveRequest,
     service: ServerService = Depends(get_service),
 ):
-  updated = await service.save_single_server(server_id, payload)
+  updated = await service.save_single_server(server_id, payload.to_command())
   return JSONResponse({"status": "ok", "server": updated.model_dump()})
 
 
@@ -287,10 +293,10 @@ async def save_settings(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  settings = await SettingsFormData.from_form(
+  command = await SettingsFormData.to_command(
       await request.form(), repo.load().servers
   )
-  res = service.save_settings(settings)
+  res = service.save_settings(command)
   if inspect.isawaitable(res):
     await res
   return RedirectResponse(url="/?toast=saved", status_code=303)
@@ -302,10 +308,10 @@ async def add_server(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  settings = await SettingsFormData.from_form(
+  command = await SettingsFormData.to_command(
       await request.form(), repo.load().servers
   )
-  res = service.add_server(settings)
+  res = service.add_server(command)
   if inspect.isawaitable(res):
     await res
   return RedirectResponse(url="/?toast=server_added", status_code=303)
@@ -318,10 +324,10 @@ async def delete_server(
     service: ServerService = Depends(get_service),
     repo: ConfigRepositoryProtocol = Depends(get_repo),
 ):
-  settings = await SettingsFormData.from_form(
+  command = await SettingsFormData.to_command(
       await request.form(), repo.load().servers
   )
-  res = service.delete_server(server_id, settings)
+  res = service.delete_server(server_id, command)
   if inspect.isawaitable(res):
     await res
   return RedirectResponse(url="/?toast=server_removed", status_code=303)
@@ -336,7 +342,7 @@ async def rename_server(
 ):
   raw_form = await request.form()
   servers = repo.load().servers
-  settings = await SettingsFormData.from_form(raw_form, servers)
+  command = await SettingsFormData.to_command(raw_form, servers)
   idx = service.find_server_index(servers, server_id)
   if idx is None:
     raise ServerNotFoundError(server_id)
@@ -349,7 +355,7 @@ async def rename_server(
   if not new_name:
     raise ConfigurationError("Server name cannot be empty.")
 
-  await service.rename_server(server_id, new_name, settings)
+  await service.rename_server(server_id, new_name, command)
   return RedirectResponse(url="/?toast=renamed", status_code=303)
 
 

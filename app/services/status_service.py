@@ -44,6 +44,7 @@ class StatusAggregationService:
       runtime_state: Optional[RuntimeStateStoreProtocol] = None,
       power_tracker: Optional[PowerTrackerGateway] = None,
       telemetry_cache_ttl: float = 3.0,
+      commit_code: Optional[str] = None,
   ):
     self.repository = repository
     self.ptero = ptero
@@ -56,6 +57,7 @@ class StatusAggregationService:
     self.runtime_state = runtime_state
     self.power_tracker = power_tracker
     self.telemetry_cache_ttl = telemetry_cache_ttl
+    self.commit_code = commit_code or COMMIT_CODE
     self._telemetry_cache: dict[str, dict[str, Any]] = {}
     self._ext_ip_cache: tuple[Optional[str], float] = (None, 0.0)
 
@@ -243,7 +245,7 @@ class StatusAggregationService:
 
     return {
         "app_version": APP_VERSION,
-        "commit_code": COMMIT_CODE,
+        "commit_code": self.commit_code,
         "last_check": last_check,
         "last_status": last_status,
         "test_mode": cfg.test_mode,
