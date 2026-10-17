@@ -182,9 +182,9 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertLess(res.text.index('id="btn-check-now"'), res.text.index('id="main-form"'))
 
     # Footer elements
-    self.assertEqual(APP_VERSION, "1.30.0")
+    self.assertEqual(APP_VERSION, "1.30.1")
     self.assertIn(f"v{APP_VERSION}", res.text)
-    self.assertIn("v1.30.0", res.text)
+    self.assertIn("v1.30.1", res.text)
     self.assertIn(f"commit {COMMIT_CODE}", res.text)
 
     # Modals
@@ -212,6 +212,9 @@ class TestDashboardModularisation(unittest.TestCase):
     html_settings = tpl_settings.render(cfg=cfg)
     self.assertIn("Global Panel Settings", html_settings)
     self.assertIn('name="panel_url"', html_settings)
+    self.assertIn('id="btn-open-simulator"', html_settings)
+    self.assertIn('data-action="toggle-simulator-window"', html_settings)
+    self.assertIn("Test Mode</span>", html_settings)
 
     # 3. Server card partial
     tpl_card = templates.get_template("components/_server_card.html")
@@ -222,6 +225,7 @@ class TestDashboardModularisation(unittest.TestCase):
     )
     self.assertIn("Survival Server", html_card)
     self.assertIn('id="btn_start_0"', html_card)
+    self.assertIn('data-action="test-webhook"', html_card)
 
     # 4. Footer partial
     tpl_footer = templates.get_template("components/_footer.html")
@@ -230,9 +234,9 @@ class TestDashboardModularisation(unittest.TestCase):
         app_version=APP_VERSION,
         commit_code=COMMIT_CODE,
     )
-    self.assertEqual(APP_VERSION, "1.30.0")
+    self.assertEqual(APP_VERSION, "1.30.1")
     self.assertIn(f"v{APP_VERSION}", html_footer)
-    self.assertIn("v1.30.0", html_footer)
+    self.assertIn("v1.30.1", html_footer)
     self.assertIn(f"commit {COMMIT_CODE}", html_footer)
 
     # 5. Modals partial

@@ -129,6 +129,27 @@ class TestTypedRouteEndpoints(unittest.TestCase):
     self.assertEqual(res_legacy.status_code, 200)
     self.assertEqual(res_legacy.json(), {"status": "ok", "ssl_verify": False})
 
+  def test_toggle_ssl_verify_with_real_server_service_no_name_error(self):
+    from app.services.server_service import ServerService
+    cfg = AppConfigModel(ssl_verify=False)
+    self.repo.load.return_value = cfg
+    real_service = ServerService(
+        repository=self.repo,
+        ptero=AsyncMock(),
+        steam=AsyncMock(),
+        discord=AsyncMock(),
+        preview_store=self.preview_store,
+        simulator_store=MagicMock(),
+        countdown=MagicMock(),
+        runtime_state=MagicMock(),
+    )
+    app.state.server_service = real_service
+    res = self.client.post("/api/toggle-ssl-verify", json={"enabled": True})
+    self.assertEqual(res.status_code, 200)
+    self.assertEqual(res.json(), {"status": "ok", "ssl_verify": True})
+    self.assertTrue(cfg.ssl_verify)
+    self.repo.save.assert_called_with(cfg)
+
   def test_api_test_webhook_endpoints(self):
     srv = ServerModel(name="Valheim Dedicated", server_id="srv-alpha")
     self.repo.load.return_value = AppConfigModel(servers=[srv])
@@ -162,7 +183,7 @@ class TestTypedRouteEndpoints(unittest.TestCase):
     # Default form post (follow_redirects=False)
     res_redirect = self.client.post("/test-webhook/srv-alpha", follow_redirects=False)
     self.assertEqual(res_redirect.status_code, 303)
-    self.assertEqual(res_redirect.headers.get("location"), "/")
+    self.assertEqual(res_redirect.headers.get("location"), "/?toast=test_webhook&open_sim=1")
 
   def test_test_webhook_end_to_end_with_notification_preview_no_500(self):
     """Verifies that dispatching a test webhook with NotificationPreview does not 500 on dashboard redirect."""

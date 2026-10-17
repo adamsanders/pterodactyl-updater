@@ -76,111 +76,142 @@ class StatusAggregationService:
       srv: ServerModel,
   ) -> ServerStatusDTO:
     """Pure query: reads telemetry, allocation, and power state for an individual game server with short-TTL caching."""
-    now = time.time()
-    sid = srv.server_id
-    cached_telem = self._telemetry_cache.get(sid) if sid else None
+    try:
+      now = time.time()
+      sid = srv.server_id
+      cached_telem = self._telemetry_cache.get(sid) if sid else None
 
-    # Check real-time power tracker cache if available for instant power transitions
-    tracker_power = None
-    if self.power_tracker and sid:
-      cand = self.power_tracker.get_valid_cache(sid)
-      if isinstance(cand, (PowerState, str)):
-        tracker_power = PowerState.from_str(cand)
+      # Check real-time power tracker cache if available for instant power transitions
+      tracker_power = None
+      if self.power_tracker and sid:
+        cand = self.power_tracker.get_valid_cache(sid)
+        if isinstance(cand, (PowerState, str)):
+          tracker_power = PowerState.from_str(cand)
 
-    # Check whether cached telemetry is valid
-    if cached_telem and cached_telem.get("expires", 0.0) > now:
-      power = tracker_power if tracker_power is not None else cached_telem["power"]
-      internal_ip = cached_telem["internal_ip"]
-      game_port = cached_telem["port"]
-      query_port = cached_telem["query_port"]
-      if power == PowerState.RUNNING:
-        player_count = cached_telem["player_count"]
-        max_players = cached_telem["max_players"]
+      # Check whether cached telemetry is valid
+      if cached_telem and cached_telem.get("expires", 0.0) > now:
+        power = tracker_power if tracker_power is not None else cached_telem["power"]
+        internal_ip = cached_telem["internal_ip"]
+        game_port = cached_telem["port"]
+        query_port = cached_telem["query_port"]
+        if power == PowerState.RUNNING:
+          player_count = cached_telem["player_count"]
+          max_players = cached_telem["max_players"]
+        else:
+          player_count, max_players = None, None
       else:
+        # Retrieve power state using power tracker cache or gateway
+        power = tracker_power if tracker_power is not None else PowerState.UNKNOWN
+        if power == PowerState.UNKNOWN and cfg.panel_url and cfg.api_key and sid:
+          try:
+            raw_power = await self.ptero.get_power_state(
+                cfg.panel_url, cfg.api_key, sid
+            )
+            power = PowerState.from_str(raw_power)
+          except Exception as e:
+            logger.warning("Failed to fetch power state for server %s: %s", sid, e)
+            power = PowerState.UNKNOWN
+
+        internal_ip, game_port = None, None
+        if cfg.panel_url and cfg.api_key and sid:
+          try:
+            internal_ip, game_port = await self.ptero.get_server_allocation(
+                cfg.panel_url, cfg.api_key, sid
+            )
+          except Exception as e:
+            logger.warning("Failed to fetch allocation for server %s: %s", sid, e)
+
+        query_port = (
+            resolve_query_port(srv.app_id, game_port, srv.query_port_offset)
+            if game_port
+            else None
+        )
+
         player_count, max_players = None, None
-    else:
-      # Retrieve power state using power tracker cache or gateway
-      power = tracker_power if tracker_power is not None else PowerState.UNKNOWN
-      if power == PowerState.UNKNOWN and cfg.panel_url and cfg.api_key and sid:
-        raw_power = await self.ptero.get_power_state(
-            cfg.panel_url, cfg.api_key, sid
-        )
-        power = PowerState.from_str(raw_power)
+        if self.a2s and power == PowerState.RUNNING and ext_ip and query_port:
+          try:
+            player_count, max_players = await self.a2s.get_player_count(
+                ext_ip, query_port
+            )
+          except Exception as e:
+            logger.warning("Failed to fetch A2S player count for server %s: %s", sid, e)
 
-      internal_ip, game_port = None, None
-      if cfg.panel_url and cfg.api_key and sid:
-        internal_ip, game_port = await self.ptero.get_server_allocation(
-            cfg.panel_url, cfg.api_key, sid
-        )
+        if sid:
+          self._telemetry_cache[sid] = {
+              "power": power,
+              "internal_ip": internal_ip,
+              "port": game_port,
+              "query_port": query_port,
+              "player_count": player_count,
+              "max_players": max_players,
+              "expires": now + self.telemetry_cache_ttl,
+          }
 
-      query_port = (
-          resolve_query_port(srv.app_id, game_port, srv.query_port_offset)
-          if game_port
-          else None
+      # Non-blocking in-memory reads for runtime build status and countdown
+      target_ts = self.countdown.get_target(sid) if sid else 0.0
+      rem = self.countdown.get_remaining(sid) if sid else 0
+
+      if self.runtime_state and sid:
+        st = self.runtime_state.get_server_state(sid)
+        cur_build = st.current_build
+        lat_build = st.latest_build
+        srv_status = st.last_status
+      elif srv:
+        cur_build = getattr(srv, "_ephemeral_current_build", "Unknown")
+        lat_build = getattr(srv, "_ephemeral_latest_build", "Unknown")
+        srv_status = getattr(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
+      else:
+        cur_build = "Unknown"
+        lat_build = "Unknown"
+        srv_status = ServerUpdateStatus.IDLE
+
+      is_upd = (power != PowerState.OFFLINE) and (
+          (self.countdown.is_running(sid) if sid else False)
+          or (
+              cur_build != lat_build
+              and cur_build not in ("Unknown", "?")
+              and lat_build not in ("Unknown", "?")
+          )
       )
 
-      player_count, max_players = None, None
-      if self.a2s and power == PowerState.RUNNING and ext_ip and query_port:
-        player_count, max_players = await self.a2s.get_player_count(
-            ext_ip, query_port
-        )
-
-      if sid:
-        self._telemetry_cache[sid] = {
-            "power": power,
-            "internal_ip": internal_ip,
-            "port": game_port,
-            "query_port": query_port,
-            "player_count": player_count,
-            "max_players": max_players,
-            "expires": now + self.telemetry_cache_ttl,
-        }
-
-    # Non-blocking in-memory reads for runtime build status and countdown
-    target_ts = self.countdown.get_target(sid) if sid else 0.0
-    rem = self.countdown.get_remaining(sid) if sid else 0
-
-    if self.runtime_state and sid:
-      st = self.runtime_state.get_server_state(sid)
-      cur_build = st.current_build
-      lat_build = st.latest_build
-      srv_status = st.last_status
-    elif srv:
-      cur_build = getattr(srv, "_ephemeral_current_build", "Unknown")
-      lat_build = getattr(srv, "_ephemeral_latest_build", "Unknown")
-      srv_status = getattr(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
-    else:
-      cur_build = "Unknown"
-      lat_build = "Unknown"
-      srv_status = ServerUpdateStatus.IDLE
-
-    is_upd = (power != PowerState.OFFLINE) and (
-        (self.countdown.is_running(sid) if sid else False)
-        or (
-            cur_build != lat_build
-            and cur_build not in ("Unknown", "?")
-            and lat_build not in ("Unknown", "?")
-        )
-    )
-
-    return ServerStatusDTO(
-        idx=idx,
-        server_id=srv.server_id,
-        name=srv.name,
-        power_state=power,
-        current_build=cur_build,
-        latest_build=lat_build,
-        last_status=srv_status,
-        target_timestamp=target_ts,
-        remaining_seconds=rem,
-        is_updating=is_upd,
-        external_ip=ext_ip,
-        internal_ip=internal_ip,
-        port=game_port,
-        query_port=query_port,
-        player_count=player_count,
-        max_players=max_players,
-    )
+      return ServerStatusDTO(
+          idx=idx,
+          server_id=srv.server_id,
+          name=srv.name,
+          power_state=power,
+          current_build=cur_build,
+          latest_build=lat_build,
+          last_status=srv_status,
+          target_timestamp=target_ts,
+          remaining_seconds=rem,
+          is_updating=is_upd,
+          external_ip=ext_ip,
+          internal_ip=internal_ip,
+          port=game_port,
+          query_port=query_port,
+          player_count=player_count,
+          max_players=max_players,
+      )
+    except Exception as err:
+      logger.error("Error reading single server status for %s: %s", getattr(srv, "server_id", idx), err, exc_info=True)
+      return ServerStatusDTO(
+          idx=idx,
+          server_id=srv.server_id if srv else "",
+          name=srv.name if srv else "",
+          power_state=PowerState.UNKNOWN,
+          current_build="Unknown",
+          latest_build="Unknown",
+          last_status=ServerUpdateStatus.IDLE,
+          target_timestamp=0.0,
+          remaining_seconds=0,
+          is_updating=False,
+          external_ip=ext_ip,
+          internal_ip=None,
+          port=None,
+          query_port=None,
+          player_count=None,
+          max_players=None,
+      )
 
   async def get_status_snapshot(self) -> dict[str, Any]:
     """Collates full fleet telemetry as a pure, side-effect free read query with cached telemetry."""
@@ -200,18 +231,49 @@ class StatusAggregationService:
     if cached_ip and ip_expires > now:
       ext_ip = cached_ip
     else:
-      ext_ip = await self.ptero.get_external_ip()
-      self._ext_ip_cache = (ext_ip, now + 300.0)
+      try:
+        ext_ip = await self.ptero.get_external_ip()
+        self._ext_ip_cache = (ext_ip, now + 300.0)
+      except Exception as e:
+        logger.warning("Failed to resolve external IP: %s", e)
+        ext_ip = None
 
     # Query all servers concurrently in parallel without side effects
     dtos = await asyncio.gather(
         *(
             self.get_single_server_status(cfg, ext_ip, idx, srv)
             for idx, srv in enumerate(cfg.servers)
-        )
+        ),
+        return_exceptions=True,
     )
 
-    servers_status = [dto.model_dump() for dto in dtos]
+    servers_status = []
+    for idx, dto in enumerate(dtos):
+      if isinstance(dto, Exception):
+        logger.error("Unhandled error querying server status for idx %s: %s", idx, dto)
+        srv = cfg.servers[idx] if idx < len(cfg.servers) else None
+        dto = ServerStatusDTO(
+            idx=idx,
+            server_id=srv.server_id if srv else "",
+            name=srv.name if srv else f"Server {idx}",
+            power_state=PowerState.UNKNOWN,
+            current_build="Unknown",
+            latest_build="Unknown",
+            last_status=ServerUpdateStatus.IDLE,
+            target_timestamp=0.0,
+            remaining_seconds=0,
+            is_updating=False,
+            external_ip=ext_ip,
+            internal_ip=None,
+            port=None,
+            query_port=None,
+            player_count=None,
+            max_players=None,
+        )
+      if hasattr(dto, "model_dump"):
+        servers_status.append(dto.model_dump(mode="json"))
+      else:
+        servers_status.append(dto)
 
     preview_data = None
     active_preview = self.preview_store.get_preview()

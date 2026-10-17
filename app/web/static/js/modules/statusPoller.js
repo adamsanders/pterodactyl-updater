@@ -4,7 +4,7 @@
  */
 
 import { showToast } from './toast.js';
-import { updatePowerButtons, isServerDirty } from './serverCard.js';
+import { updatePowerButtons, isServerDirty, updateServerCardStatus } from './serverCard.js';
 import { renderTestPreview } from './simulatorModal.js';
 import { clearChildren } from './domUtils.js';
 
@@ -36,12 +36,48 @@ export function startStatusPolling(interval = STEADY_POLL_INTERVAL) {
 }
 
 /**
+ * Resolves visual card number based on actual DOM position (allTitles.indexOf(titleEl) => cardNum).
+ *
+ * @param {HTMLElement} titleEl - Title element.
+ * @param {number|string} idx - Card index fallback.
+ * @returns {number}
+ */
+export function getVisualCardNumber(titleEl, idx) {
+  if (!titleEl) return parseInt(idx, 10) + 1;
+  const allTitles = Array.from(document.querySelectorAll('[id^="srv_title_"]'));
+  const displayIdx = allTitles.indexOf(titleEl);
+  const cardNum = displayIdx !== -1 ? displayIdx + 1 : (parseInt(idx, 10) + 1);
+  return cardNum;
+}
+
+/**
+ * Fallback to recover "Checking..." badges to "Unknown" with enabled power buttons on network or polling errors.
+ */
+export function fallbackUnknownStatus() {
+  document.querySelectorAll('[id^="srv_power_badge_"]').forEach(badge => {
+    if (badge.textContent && badge.textContent.includes('Checking...')) {
+      const idx = badge.id.replace('srv_power_badge_', '');
+      clearChildren(badge);
+      const dot = document.createElement('span');
+      badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-400 border border-gray-700';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-gray-500';
+      badge.appendChild(dot);
+      badge.appendChild(document.createTextNode('Unknown'));
+      updatePowerButtons(idx, 'unknown');
+    }
+  });
+}
+
+/**
  * Fetches server status snapshot from /api/status and updates DOM elements safely.
  */
 export async function pollLiveStatus() {
   try {
     const res = await fetch('/api/status', { cache: 'no-store' });
-    if (!res.ok) return;
+    if (!res.ok) {
+      fallbackUnknownStatus();
+      return;
+    }
     const data = await res.json();
 
     const globalCheckEl = document.getElementById('global-last-check');
@@ -61,182 +97,7 @@ export async function pollLiveStatus() {
 
     if (Array.isArray(data.servers)) {
       data.servers.forEach(srv => {
-        const idx = srv.idx;
-        updatePowerButtons(idx, srv.power_state, srv.server_id);
-
-        // Power Status Badge
-        const badgeEl = document.getElementById('srv_power_badge_' + idx);
-        if (badgeEl && srv.power_state) {
-          const st = srv.power_state.toLowerCase();
-          clearChildren(badgeEl);
-          const dot = document.createElement('span');
-
-          if (st === 'running') {
-            badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-500/40';
-            dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse';
-            badgeEl.appendChild(dot);
-            badgeEl.appendChild(document.createTextNode('Online'));
-          } else if (st === 'offline') {
-            badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-950/80 text-red-300 border border-red-500/40';
-            dot.className = 'w-1.5 h-1.5 rounded-full bg-red-400';
-            badgeEl.appendChild(dot);
-            badgeEl.appendChild(document.createTextNode('Offline'));
-          } else if (st === 'starting') {
-            badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-500/40';
-            dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping';
-            badgeEl.appendChild(dot);
-            badgeEl.appendChild(document.createTextNode('Starting...'));
-          } else if (st === 'stopping') {
-            badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-950/80 text-orange-300 border border-orange-500/40';
-            dot.className = 'w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse';
-            badgeEl.appendChild(dot);
-            badgeEl.appendChild(document.createTextNode('Stopping...'));
-          } else {
-            badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-400 border border-gray-700';
-            dot.className = 'w-1.5 h-1.5 rounded-full bg-gray-500';
-            badgeEl.appendChild(dot);
-            badgeEl.appendChild(document.createTextNode('Unknown'));
-          }
-        }
-
-        // Server Status Message
-        const statusEl = document.getElementById('srv_status_' + idx);
-        if (statusEl) {
-          const rawStatus = (srv.last_status || '').trim();
-          if (!rawStatus || redundantStatuses.includes(rawStatus.toLowerCase())) {
-            statusEl.textContent = '';
-            statusEl.className = 'hidden';
-          } else if (rawStatus.toLowerCase().startsWith('error') || rawStatus.toLowerCase().includes('failed')) {
-            statusEl.className = 'text-xs font-semibold text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/60';
-            statusEl.textContent = rawStatus;
-          } else {
-            statusEl.className = 'text-xs font-medium text-indigo-300 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-800/50';
-            statusEl.textContent = rawStatus;
-          }
-        }
-
-        // Countdown Timer
-        const cdWrap = document.getElementById('srv_countdown_wrap_' + idx);
-        const cdEl = document.getElementById('srv_countdown_' + idx);
-        const now = Date.now() / 1000;
-        if (cdEl && cdWrap) {
-          cdEl.setAttribute('data-target', srv.target_timestamp || '0');
-          if (srv.target_timestamp && srv.target_timestamp > now) {
-            cdWrap.classList.remove('hidden');
-            cdWrap.classList.add('inline-flex');
-          } else {
-            cdWrap.classList.add('hidden');
-            cdWrap.classList.remove('inline-flex');
-          }
-        }
-
-        // Build Status Indicators (Safe DOM Construction)
-        const buildsEl = document.getElementById('srv_builds_' + idx);
-        if (buildsEl) {
-          const cur = srv.current_build || 'Unknown';
-          const lat = srv.latest_build || 'Unknown';
-          const isUpdating = srv.is_updating;
-          clearChildren(buildsEl);
-
-          const labelSpan = document.createElement('span');
-          labelSpan.className = 'text-gray-400 mr-1.5';
-
-          const valSpan = document.createElement('span');
-          valSpan.className = 'font-mono text-gray-200';
-
-          if (cur === lat && cur !== 'Unknown' && cur !== '?') {
-            labelSpan.textContent = 'Build:';
-            valSpan.textContent = lat;
-            buildsEl.appendChild(labelSpan);
-            buildsEl.appendChild(valSpan);
-
-            // Green tick SVG
-            const tickSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            tickSvg.setAttribute('class', 'w-4 h-4 text-emerald-400 inline-block ml-1');
-            tickSvg.setAttribute('fill', 'none');
-            tickSvg.setAttribute('stroke', 'currentColor');
-            tickSvg.setAttribute('viewBox', '0 0 24 24');
-            tickSvg.setAttribute('stroke-width', '2.5');
-            const tickPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            tickPath.setAttribute('stroke-linecap', 'round');
-            tickPath.setAttribute('stroke-linejoin', 'round');
-            tickPath.setAttribute('d', 'M5 13l4 4L19 7');
-            tickSvg.appendChild(tickPath);
-            buildsEl.appendChild(tickSvg);
-          } else if (cur !== 'Unknown' && lat !== 'Unknown') {
-            labelSpan.textContent = 'Builds:';
-            valSpan.textContent = `${cur} → ${lat}`;
-            buildsEl.appendChild(labelSpan);
-            buildsEl.appendChild(valSpan);
-
-            if (isUpdating) {
-              const swirlSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-              swirlSvg.setAttribute('class', 'animate-spin w-4 h-4 text-indigo-400 inline-block ml-2');
-              swirlSvg.setAttribute('fill', 'none');
-              swirlSvg.setAttribute('viewBox', '0 0 24 24');
-              const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-              circle.setAttribute('class', 'opacity-25');
-              circle.setAttribute('cx', '12');
-              circle.setAttribute('cy', '12');
-              circle.setAttribute('r', '10');
-              circle.setAttribute('stroke', 'currentColor');
-              circle.setAttribute('stroke-width', '4');
-              const swirlPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-              swirlPath.setAttribute('class', 'opacity-75');
-              swirlPath.setAttribute('fill', 'currentColor');
-              swirlPath.setAttribute('d', 'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z');
-              swirlSvg.appendChild(circle);
-              swirlSvg.appendChild(swirlPath);
-              buildsEl.appendChild(swirlSvg);
-            }
-          } else {
-            labelSpan.textContent = 'Builds:';
-            valSpan.textContent = `${cur} → ${lat}`;
-            buildsEl.appendChild(labelSpan);
-            buildsEl.appendChild(valSpan);
-          }
-        }
-
-        // Server Title & Input Sync
-        const titleEl = document.getElementById('srv_title_' + idx);
-        const inputEl = document.getElementById('srv_name_input_' + idx);
-        if (titleEl && srv.name && !isServerDirty(idx)) {
-          const allTitles = Array.from(document.querySelectorAll('[id^="srv_title_"]'));
-          const displayIdx = allTitles.indexOf(titleEl);
-          const cardNum = displayIdx !== -1 ? displayIdx + 1 : (idx + 1);
-          titleEl.textContent = 'Server #' + cardNum + ': ' + srv.name;
-          if (inputEl && inputEl.readOnly) {
-            inputEl.value = srv.name;
-          }
-        }
-
-        // Network Address & Mouseover Internal IP
-        const netWrap = document.getElementById('srv_net_wrap_' + idx);
-        const addrEl = document.getElementById('srv_address_' + idx);
-        const internalEl = document.getElementById('srv_internal_ip_' + idx);
-        if (netWrap && addrEl && internalEl) {
-          if (srv.external_ip && srv.port) {
-            addrEl.textContent = `${srv.external_ip}:${srv.port}`;
-            internalEl.textContent = `${srv.internal_ip || 'Local'}:${srv.port}`;
-            netWrap.classList.remove('hidden');
-          } else {
-            netWrap.classList.add('hidden');
-          }
-        }
-
-        // Player Count Pill
-        const playersWrap = document.getElementById('srv_players_wrap_' + idx);
-        const playersEl = document.getElementById('srv_players_' + idx);
-        if (playersWrap && playersEl) {
-          if (srv.player_count !== null && srv.player_count !== undefined) {
-            playersEl.textContent = `${srv.player_count} / ${srv.max_players}`;
-            playersWrap.classList.remove('hidden');
-            playersWrap.classList.add('inline-flex');
-          } else {
-            playersWrap.classList.add('hidden');
-            playersWrap.classList.remove('inline-flex');
-          }
-        }
+        updateServerCardStatus(srv);
       });
     }
 
@@ -255,7 +116,9 @@ export async function pollLiveStatus() {
         startStatusPolling(desiredInterval);
       }
     }
-  } catch (err) {}
+  } catch (err) {
+    fallbackUnknownStatus();
+  }
 }
 
 /**

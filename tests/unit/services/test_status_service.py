@@ -252,6 +252,47 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(server_data["query_port"], 2457)
     self.a2s.get_player_count.assert_called_with("1.2.3.4", 2457)
 
+  async def test_gateway_exceptions_fall_back_gracefully_to_unknown_without_raising(self):
+    srv = ServerModel(name="Broken Server", server_id="srv_broken", app_id="896660", query_port_offset=1)
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.ptero.get_external_ip.return_value = "1.2.3.4"
+    self.ptero.get_power_state.side_effect = RuntimeError("Pterodactyl 502 Bad Gateway")
+    self.ptero.get_server_allocation.side_effect = TimeoutError("Connection timed out")
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    self.assertEqual(len(snapshot["servers"]), 1)
+    srv_data = snapshot["servers"][0]
+    self.assertEqual(srv_data["power_state"], "unknown")
+    self.assertIsNone(srv_data["internal_ip"])
+    self.assertIsNone(srv_data["port"])
+
+  async def test_external_ip_failure_does_not_crash_snapshot(self):
+    srv = ServerModel(name="Valid Server", server_id="srv_valid", app_id="896660", query_port_offset=1)
+    cfg = AppConfigModel(
+        panel_url="http://panel.example.com",
+        api_key="ptlc_key",
+        servers=[srv],
+    )
+    self.repo.load.return_value = cfg
+    self.service.invalidate_cache()
+    self.service._ext_ip_cache = (None, 0.0)
+    self.ptero.get_external_ip.side_effect = TimeoutError("External IP lookup failed")
+    self.ptero.get_power_state.return_value = "running"
+    self.ptero.get_server_allocation.return_value = ("192.168.1.10", 7777)
+    self.preview_store.get_preview.return_value = None
+
+    snapshot = await self.service.get_status_snapshot()
+    self.assertEqual(len(snapshot["servers"]), 1)
+    srv_data = snapshot["servers"][0]
+    self.assertEqual(srv_data["power_state"], "running")
+    self.assertIsNone(srv_data["external_ip"])
+
   async def test_status_service_unmapped_app_zero_offset_returns_game_port(self):
     srv = ServerModel(
         name="Palworld Zero Offset",
@@ -320,6 +361,27 @@ class TestStatusAggregationService(unittest.IsolatedAsyncioTestCase):
     self.assertIsNotNone(status)
     self.assertEqual(status.power_state, PowerState.RUNNING)
     self.ptero.get_power_state.assert_called_once()
+
+  async def test_gather_exception_falls_back_to_unknown_without_dropping_server(self):
+    srv1 = ServerModel(name="Server 1", server_id="srv_1")
+    srv2 = ServerModel(name="Server 2", server_id="srv_2")
+    cfg = AppConfigModel(servers=[srv1, srv2])
+    self.repo.load.return_value = cfg
+
+    orig_get_single = self.service.get_single_server_status
+
+    async def side_effect(c, ip, idx, s):
+      if idx == 1:
+        raise RuntimeError("Gather crash on srv2")
+      return await orig_get_single(c, ip, idx, s)
+
+    self.service.get_single_server_status = side_effect
+    snapshot = await self.service.get_status_snapshot()
+    self.assertEqual(len(snapshot["servers"]), 2)
+    self.assertEqual(snapshot["servers"][0]["server_id"], "srv_1")
+    self.assertEqual(snapshot["servers"][1]["server_id"], "srv_2")
+    self.assertEqual(snapshot["servers"][1]["power_state"], "unknown")
+    self.assertEqual(snapshot["servers"][1]["idx"], 1)
 
 
 class TestResolveQueryPort(unittest.TestCase):

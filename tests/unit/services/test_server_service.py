@@ -789,6 +789,22 @@ class TestServerServiceCleanArchitecture(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(results[0].app_id, "2230650")
     self.steam.search_games.assert_called_once_with("enshrouded")
 
+  async def test_toggle_ssl_verify_direct_execution_no_name_error(self):
+    cfg = AppConfigModel(ssl_verify=False)
+    self.repo.load.return_value = cfg
+    res = await self.service.toggle_ssl_verify(True)
+    self.assertTrue(res)
+    self.assertTrue(cfg.ssl_verify)
+    self.repo.save.assert_called_with(cfg)
+
+  async def test_toggle_test_mode_direct_execution(self):
+    cfg = AppConfigModel(test_mode=False)
+    self.repo.load.return_value = cfg
+    res = await self.service.toggle_test_mode(True)
+    self.assertTrue(res)
+    self.assertTrue(cfg.test_mode)
+    self.repo.save.assert_called_with(cfg)
+
 
 if __name__ == "__main__":
   unittest.main()

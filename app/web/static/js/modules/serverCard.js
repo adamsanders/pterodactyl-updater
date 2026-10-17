@@ -4,7 +4,8 @@
  */
 
 import { showToast } from './toast.js';
-import { toggleTestModeImmediate, toggleSslVerifyImmediate } from './simulatorModal.js';
+import { toggleTestModeImmediate, toggleSslVerifyImmediate, openSimulatorWindow, closeSimulatorWindow } from './simulatorModal.js';
+import { clearChildren } from './domUtils.js';
 
 export const STOP_ICON = `<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>`;
 export const KILL_ICON = `<svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 2a9 9 0 0 0-9 9c0 3.3 1.8 6.2 4.5 7.7V21a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-2.3c2.7-1.5 4.5-4.4 4.5-7.7a9 9 0 0 0-9-9zm-3 10a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>`;
@@ -75,9 +76,16 @@ export function initServerBaselines() {
  * @param {number|string} idx - Server index.
  * @returns {boolean} - True if dirty.
  */
+function getBaselineValue(input, fallback = '') {
+  if (!input) return fallback;
+  if (typeof input.defaultValue === 'string') {
+    return input.defaultValue;
+  }
+  return input.value ?? fallback;
+}
+
 export function isServerDirty(idx) {
-  const base = serverBaselines[idx];
-  if (!base) return false;
+  let base = serverBaselines[idx];
   const nameInput = document.getElementById('srv_name_input_' + idx);
   const idInput = document.getElementById('srv_id_input_' + idx);
   const appidInput = document.getElementById('srv_appid_input_' + idx);
@@ -85,13 +93,32 @@ export function isServerDirty(idx) {
   const portOffsetInput = document.getElementById('srv_port_offset_input_' + idx);
   const broadcastCmdInput = document.getElementById('srv_broadcast_cmd_input_' + idx);
 
+  if (!base) {
+    serverBaselines[idx] = {
+      name: getBaselineValue(nameInput, ''),
+      server_id: getBaselineValue(idInput, ''),
+      app_id: getBaselineValue(appidInput, ''),
+      manifest_path: getBaselineValue(manifestInput, ''),
+      query_port_offset: String(getBaselineValue(portOffsetInput, '0')),
+      broadcast_command_template: getBaselineValue(broadcastCmdInput, 'say {message}')
+    };
+    base = serverBaselines[idx];
+  }
+
+  const nameVal = nameInput ? nameInput.value : '';
+  const idVal = idInput ? idInput.value : '';
+  const appidVal = appidInput ? appidInput.value : '';
+  const manifestVal = manifestInput ? manifestInput.value : '';
+  const portOffsetVal = portOffsetInput ? String(portOffsetInput.value) : '0';
+  const broadcastCmdVal = broadcastCmdInput ? (broadcastCmdInput.value || 'say {message}') : 'say {message}';
+
   return (
-    (nameInput && nameInput.value !== base.name) ||
-    (idInput && idInput.value !== base.server_id) ||
-    (appidInput && appidInput.value !== base.app_id) ||
-    (manifestInput && manifestInput.value !== base.manifest_path) ||
-    (portOffsetInput && portOffsetInput.value !== base.query_port_offset) ||
-    (broadcastCmdInput && broadcastCmdInput.value !== base.broadcast_command_template)
+    nameVal !== (base.name ?? '') ||
+    idVal !== (base.server_id ?? '') ||
+    appidVal !== (base.app_id ?? '') ||
+    manifestVal !== (base.manifest_path ?? '') ||
+    portOffsetVal !== String(base.query_port_offset ?? '0') ||
+    broadcastCmdVal !== (base.broadcast_command_template ?? 'say {message}')
   );
 }
 
@@ -301,9 +328,10 @@ export async function toggleServerSlider(identifier, idx, field, el) {
     'warn_discord_countdown': 'Discord Countdown Warnings'
   };
   const label = labelMap[field] || field;
+  const ident = identifier || ((idx !== undefined && idx !== null && idx !== '') ? String(idx) : '0');
 
   try {
-    const res = await fetch(`/api/servers/${encodeURIComponent(identifier)}/toggle`, {
+    const res = await fetch(`/api/servers/${encodeURIComponent(ident)}/toggle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -316,6 +344,7 @@ export async function toggleServerSlider(identifier, idx, field, el) {
     if (!res.ok || data.status !== 'ok') {
       throw new Error(data.message || 'Failed to update setting');
     }
+    el.defaultChecked = isChecked;
     const cardNum = getCardDisplayNumber(idx);
     showToast(`${label} ${isChecked ? 'enabled' : 'disabled'} for Server #${cardNum}`, 'success');
   } catch (err) {
@@ -599,6 +628,255 @@ export async function triggerPowerAction(identifier, action, uiIndex = null) {
 }
 
 /**
+ * Backward compatibility alias for updatePowerButtons.
+ */
+export function renderPowerButtons(idx, powerState, serverId = null) {
+  return updatePowerButtons(idx, powerState, serverId);
+}
+
+const REDUNDANT_STATUSES = [
+  "up to date",
+  "update available",
+  "update available — countdown started",
+  "update available (countdown active)",
+  "countdown in progress...",
+  "idle"
+];
+
+/**
+ * Updates DOM elements for an individual server card based on a server status DTO.
+ *
+ * @param {Object} srv - Server status snapshot object.
+ */
+export function updateServerCardStatus(srv) {
+  if (!srv || srv.idx === undefined || srv.idx === null) return;
+  const idx = srv.idx;
+  updatePowerButtons(idx, srv.power_state, srv.server_id);
+
+  // Power Status Badge
+  const badgeEl = document.getElementById('srv_power_badge_' + idx);
+  if (badgeEl && srv.power_state) {
+    const st = srv.power_state.toLowerCase();
+    clearChildren(badgeEl);
+    const dot = document.createElement('span');
+
+    if (st === 'running') {
+      badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-500/40';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse';
+      badgeEl.appendChild(dot);
+      badgeEl.appendChild(document.createTextNode('Online'));
+    } else if (st === 'offline') {
+      badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-950/80 text-red-300 border border-red-500/40';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-red-400';
+      badgeEl.appendChild(dot);
+      badgeEl.appendChild(document.createTextNode('Offline'));
+    } else if (st === 'starting') {
+      badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-500/40';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping';
+      badgeEl.appendChild(dot);
+      badgeEl.appendChild(document.createTextNode('Starting...'));
+    } else if (st === 'stopping') {
+      badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-950/80 text-orange-300 border border-orange-500/40';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse';
+      badgeEl.appendChild(dot);
+      badgeEl.appendChild(document.createTextNode('Stopping...'));
+    } else {
+      badgeEl.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-400 border border-gray-700';
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-gray-500';
+      badgeEl.appendChild(dot);
+      badgeEl.appendChild(document.createTextNode('Unknown'));
+    }
+  }
+
+  // Server Status Message
+  const statusEl = document.getElementById('srv_status_' + idx);
+  if (statusEl) {
+    const rawStatus = (srv.last_status || '').trim();
+    if (!rawStatus || REDUNDANT_STATUSES.includes(rawStatus.toLowerCase())) {
+      statusEl.textContent = '';
+      statusEl.className = 'hidden';
+    } else if (rawStatus.toLowerCase().startsWith('error') || rawStatus.toLowerCase().includes('failed')) {
+      statusEl.className = 'text-xs font-semibold text-red-400 bg-red-950/50 px-2 py-0.5 rounded border border-red-800/60';
+      statusEl.textContent = rawStatus;
+    } else {
+      statusEl.className = 'text-xs font-medium text-indigo-300 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-800/50';
+      statusEl.textContent = rawStatus;
+    }
+  }
+
+  // Countdown Timer
+  const cdWrap = document.getElementById('srv_countdown_wrap_' + idx);
+  const cdEl = document.getElementById('srv_countdown_' + idx);
+  const now = Date.now() / 1000;
+  if (cdEl && cdWrap) {
+    cdEl.setAttribute('data-target', srv.target_timestamp || '0');
+    if (srv.target_timestamp && srv.target_timestamp > now) {
+      cdWrap.classList.remove('hidden');
+      cdWrap.classList.add('inline-flex');
+    } else {
+      cdWrap.classList.add('hidden');
+      cdWrap.classList.remove('inline-flex');
+    }
+  }
+
+  // Build Status Indicators (Safe DOM Construction)
+  const buildsEl = document.getElementById('srv_builds_' + idx);
+  if (buildsEl) {
+    const cur = srv.current_build || 'Unknown';
+    const lat = srv.latest_build || 'Unknown';
+    const isUpdating = srv.is_updating;
+    clearChildren(buildsEl);
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'text-gray-400 mr-1.5';
+
+    const valSpan = document.createElement('span');
+    valSpan.className = 'font-mono text-gray-200';
+
+    if (cur === lat && cur !== 'Unknown' && cur !== '?') {
+      labelSpan.textContent = 'Build:';
+      valSpan.textContent = lat;
+      buildsEl.appendChild(labelSpan);
+      buildsEl.appendChild(valSpan);
+
+      const tickSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      tickSvg.setAttribute('class', 'w-4 h-4 text-emerald-400 inline-block ml-1');
+      tickSvg.setAttribute('fill', 'none');
+      tickSvg.setAttribute('stroke', 'currentColor');
+      tickSvg.setAttribute('viewBox', '0 0 24 24');
+      tickSvg.setAttribute('stroke-width', '2.5');
+      const tickPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      tickPath.setAttribute('stroke-linecap', 'round');
+      tickPath.setAttribute('stroke-linejoin', 'round');
+      tickPath.setAttribute('d', 'M5 13l4 4L19 7');
+      tickSvg.appendChild(tickPath);
+      buildsEl.appendChild(tickSvg);
+    } else if (cur !== 'Unknown' && lat !== 'Unknown') {
+      labelSpan.textContent = 'Builds:';
+      valSpan.textContent = `${cur} → ${lat}`;
+      buildsEl.appendChild(labelSpan);
+      buildsEl.appendChild(valSpan);
+
+      if (isUpdating) {
+        const swirlSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        swirlSvg.setAttribute('class', 'animate-spin w-4 h-4 text-indigo-400 inline-block ml-2');
+        swirlSvg.setAttribute('fill', 'none');
+        swirlSvg.setAttribute('viewBox', '0 0 24 24');
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('class', 'opacity-25');
+        circle.setAttribute('cx', '12');
+        circle.setAttribute('cy', '12');
+        circle.setAttribute('r', '10');
+        circle.setAttribute('stroke', 'currentColor');
+        circle.setAttribute('stroke-width', '4');
+        const swirlPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        swirlPath.setAttribute('class', 'opacity-75');
+        swirlPath.setAttribute('fill', 'currentColor');
+        swirlPath.setAttribute('d', 'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z');
+        swirlSvg.appendChild(circle);
+        swirlSvg.appendChild(swirlPath);
+        buildsEl.appendChild(swirlSvg);
+      }
+    } else {
+      labelSpan.textContent = 'Builds:';
+      valSpan.textContent = `${cur} → ${lat}`;
+      buildsEl.appendChild(labelSpan);
+      buildsEl.appendChild(valSpan);
+    }
+  }
+
+  // Server Title & Input Sync
+  const titleEl = document.getElementById('srv_title_' + idx);
+  const inputEl = document.getElementById('srv_name_input_' + idx);
+  if (titleEl && srv.name && !isServerDirty(idx)) {
+    const allTitles = Array.from(document.querySelectorAll('[id^="srv_title_"]'));
+    const displayIdx = allTitles.indexOf(titleEl);
+    const cardNum = displayIdx !== -1 ? displayIdx + 1 : (idx + 1);
+    titleEl.textContent = 'Server #' + cardNum + ': ' + srv.name;
+    if (inputEl && inputEl.readOnly) {
+      inputEl.value = srv.name;
+      if (serverBaselines[idx]) {
+        serverBaselines[idx].name = srv.name;
+      }
+    }
+  }
+
+  // Network Address & Mouseover Internal IP
+  const netWrap = document.getElementById('srv_net_wrap_' + idx);
+  const addrEl = document.getElementById('srv_address_' + idx);
+  const internalEl = document.getElementById('srv_internal_ip_' + idx);
+  if (netWrap && addrEl && internalEl) {
+    if (srv.external_ip && srv.port) {
+      addrEl.textContent = `${srv.external_ip}:${srv.port}`;
+      internalEl.textContent = `${srv.internal_ip || 'Local'}:${srv.port}`;
+      netWrap.classList.remove('hidden');
+    } else {
+      netWrap.classList.add('hidden');
+    }
+  }
+
+  // Player Count Pill
+  const playersWrap = document.getElementById('srv_players_wrap_' + idx);
+  const playersEl = document.getElementById('srv_players_' + idx);
+  if (playersWrap && playersEl) {
+    if (srv.player_count !== null && srv.player_count !== undefined) {
+      playersEl.textContent = `${srv.player_count} / ${srv.max_players}`;
+      playersWrap.classList.remove('hidden');
+      playersWrap.classList.add('inline-flex');
+    } else {
+      playersWrap.classList.add('hidden');
+      playersWrap.classList.remove('inline-flex');
+    }
+  }
+}
+
+/**
+ * Dispatches a test webhook notification and ensures the test simulator window opens.
+ *
+ * @param {string|number} serverId - Server identifier.
+ * @param {HTMLButtonElement|null} [btn=null] - Trigger button element.
+ */
+export async function triggerTestWebhook(serverId, btn = null) {
+  if (typeof openSimulatorWindow === 'function') {
+    openSimulatorWindow();
+  } else if (typeof window.openSimulatorWindow === 'function') {
+    window.openSimulatorWindow();
+  }
+
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+  }
+
+  try {
+    const res = await fetch(`/api/test/webhook/${encodeURIComponent(serverId)}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || 'Failed to dispatch test webhook');
+    }
+    showToast(data.message || 'Test alert dispatched.', 'info');
+    if (typeof window.pollLiveStatus === 'function') {
+      window.pollLiveStatus();
+    }
+  } catch (err) {
+    console.error(err);
+    showToast(`Test webhook failed: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
+/**
  * Resolves context ({ card, idx, serverId }) for any element within a server card.
  *
  * @param {HTMLElement} element - Target DOM element.
@@ -696,6 +974,24 @@ export function initServerCardDelegation(container = document) {
           window.clearTelemetryLogs();
         }
         break;
+      case 'toggle-simulator-window':
+        if (typeof window.toggleSimulatorWindow === 'function') {
+          window.toggleSimulatorWindow();
+        }
+        break;
+      case 'test-webhook': {
+        e.preventDefault();
+        const serverId = actionEl.dataset.serverId || actionEl.getAttribute('data-server-id') || getCardContext(actionEl).serverId;
+        triggerTestWebhook(serverId, actionEl);
+        break;
+      }
+      case 'close-simulator-window':
+        if (typeof window.closeSimulatorWindow === 'function') {
+          window.closeSimulatorWindow();
+        } else if (typeof closeSimulatorWindow === 'function') {
+          closeSimulatorWindow();
+        }
+        break;
       case 'close-modal': {
         const targetId = actionEl.dataset.target;
         if (targetId) {
@@ -723,8 +1019,10 @@ export function initServerCardDelegation(container = document) {
       if (typeof window.onSteamSearchQueryInput === 'function') {
         window.onSteamSearchQueryInput(idx);
       }
-    } else if (idx !== undefined && idx !== null) {
-      checkServerDirty(idx);
+    } else if (action === 'server-text-input' || (idx !== undefined && idx !== null)) {
+      if (idx !== undefined && idx !== null) {
+        checkServerDirty(idx);
+      }
     }
   });
 
@@ -760,6 +1058,10 @@ export function initServerCardDelegation(container = document) {
         toggleSslVerifyImmediate(target);
       } else if (typeof window.toggleSslVerifyImmediate === 'function') {
         window.toggleSslVerifyImmediate(target);
+      }
+    } else if (action === 'server-text-input' || (idx !== undefined && idx !== null)) {
+      if (idx !== undefined && idx !== null) {
+        checkServerDirty(idx);
       }
     }
   });

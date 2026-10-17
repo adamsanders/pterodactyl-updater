@@ -39,6 +39,9 @@ import {
   renderStopButton,
   renderKillButton,
   updatePowerButtons,
+  renderPowerButtons as _renderPowerButtons,
+  updateServerCardStatus as _updateServerCardStatus,
+  triggerTestWebhook as _triggerTestWebhook,
   triggerPowerAction as _triggerPowerAction,
   getCardContext,
   initServerCardDelegation
@@ -58,6 +61,9 @@ import {
   filterLogs
 } from './modules/consoleDrawer.js';
 import {
+  openSimulatorWindow as _openSimulatorWindow,
+  closeSimulatorWindow as _closeSimulatorWindow,
+  toggleSimulatorWindow as _toggleSimulatorWindow,
   toggleTestModeImmediate,
   toggleSslVerifyImmediate,
   triggerSimulateBuild,
@@ -74,6 +80,30 @@ export function toggleLiveConsole() {
   return _toggleLiveConsole();
 }
 
+export function openSimulatorWindow() {
+  return _openSimulatorWindow();
+}
+
+export function closeSimulatorWindow() {
+  return _closeSimulatorWindow();
+}
+
+export function toggleSimulatorWindow() {
+  return _toggleSimulatorWindow();
+}
+
+export function updateServerCardStatus(srv) {
+  return _updateServerCardStatus(srv);
+}
+
+export function renderPowerButtons(idx, powerState, serverId = null) {
+  return _renderPowerButtons(idx, powerState, serverId);
+}
+
+export function triggerTestWebhook(serverId, btn = null) {
+  return _triggerTestWebhook(serverId, btn);
+}
+
 export function pollLiveStatus() {
   return _pollLiveStatus();
 }
@@ -87,6 +117,12 @@ export { getCardContext, initServerCardDelegation, toggleSslVerifyImmediate };
 // Bind handlers to global window object for HTML inline onclick/onchange/oninput attributes
 window.makeDraggable = makeDraggable;
 window.toggleLiveConsole = toggleLiveConsole;
+window.openSimulatorWindow = openSimulatorWindow;
+window.closeSimulatorWindow = closeSimulatorWindow;
+window.toggleSimulatorWindow = toggleSimulatorWindow;
+window.updateServerCardStatus = updateServerCardStatus;
+window.renderPowerButtons = renderPowerButtons;
+window.triggerTestWebhook = triggerTestWebhook;
 window.pollLiveStatus = pollLiveStatus;
 window.triggerPowerAction = triggerPowerAction;
 window.showToast = showToast;
@@ -155,12 +191,17 @@ function initDashboard() {
       checked: ['Unified update check finished across all servers.', 'info'],
       renamed: ['Server name updated in Pterodactyl.', 'success'],
       server_added: ['New server added. Configure details and save.', 'info'],
-      server_removed: ['Server removed from configuration.', 'info']
+      server_removed: ['Server removed from configuration.', 'info'],
+      test_webhook: ['Test alert dispatched.', 'info']
     };
     if (messages[toastType]) {
       showToast(messages[toastType][0], messages[toastType][1]);
     }
     window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+  if (urlParams.get('open_sim') === '1' || urlParams.get('open_sim') === 'true') {
+    openSimulatorWindow();
   }
 
   // Close Steam search popovers when clicking outside

@@ -90,6 +90,10 @@ class TestFrontendModularArchitecture(unittest.TestCase):
         "window.closeSteamAppSearch = closeSteamAppSearch",
         "window.selectSteamGame = selectSteamGame",
         "window.autoSyncServerDetails = autoSyncServerDetails",
+        "window.openSimulatorWindow = openSimulatorWindow",
+        "window.toggleSimulatorWindow = toggleSimulatorWindow",
+        "window.updateServerCardStatus = updateServerCardStatus",
+        "window.renderPowerButtons = renderPowerButtons",
         "window.initServerDragAndDrop = initServerDragAndDrop",
         "window.initServerCardDelegation = initServerCardDelegation",
         "window.getCardContext = getCardContext",
@@ -128,6 +132,7 @@ class TestFrontendModularArchitecture(unittest.TestCase):
   def test_drag_drop_exports_reindex_and_guards_interactive_controls(self):
     drag_drop_content = (self.modules_dir / "dragDrop.js").read_text(encoding="utf-8")
     self.assertIn("export function reindexServerCards", drag_drop_content)
+    self.assertIn("getBoundingClientRect", drag_drop_content)
     self.assertIn("LABEL", drag_drop_content)
     self.assertIn("button, label, input, select, textarea, a", drag_drop_content)
     self.assertIn(".server-drag-handle", drag_drop_content)
@@ -161,6 +166,8 @@ class TestFrontendModularArchitecture(unittest.TestCase):
 
     # Verify safe link construction and URL sanitization
     self.assertIn("sanitizeUrl", simulator_content)
+    self.assertIn("export function closeSimulatorWindow", simulator_content)
+    self.assertIn("export function openSimulatorWindow", simulator_content)
     self.assertNotIn("titleEl.innerHTML = `<a href=\"${preview.embed.url}\"", simulator_content)
 
   def test_status_poller_computes_visual_card_number_from_dom(self):
@@ -172,10 +179,16 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     server_card_content = (self.modules_dir / "serverCard.js").read_text(encoding="utf-8")
     self.assertIn("export function initServerCardDelegation", server_card_content)
     self.assertIn("export function getCardContext", server_card_content)
+    self.assertIn("export function updateServerCardStatus", server_card_content)
+    self.assertIn("export function renderPowerButtons", server_card_content)
     self.assertIn("data-action", server_card_content)
     self.assertIn("save-server", server_card_content)
     self.assertIn("sync-name", server_card_content)
     self.assertIn("power-action", server_card_content)
+    self.assertIn("toggle-simulator-window", server_card_content)
+    self.assertIn("close-simulator-window", server_card_content)
+    self.assertIn("test-webhook", server_card_content)
+    self.assertIn("getBaselineValue", server_card_content)
 
   def test_templates_contain_event_delegation_attributes(self):
     card_tpl = (self.templates_dir / "components" / "_server_card.html").read_text(encoding="utf-8")
@@ -188,6 +201,7 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     self.assertIn('data-action="server-text-input"', card_tpl)
     self.assertIn('data-action="server-id-input"', card_tpl)
     self.assertIn('data-action="steam-appid-input"', card_tpl)
+    self.assertIn('data-action="test-webhook"', card_tpl)
     self.assertNotIn('onclick=', card_tpl)
     self.assertNotIn('onchange=', card_tpl)
     self.assertNotIn('oninput=', card_tpl)
@@ -200,6 +214,8 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     self.assertIn('data-action="toggle-test-mode"', settings_tpl)
     self.assertIn('data-action="toggle-ssl-verify"', settings_tpl)
     self.assertIn('data-action="toggle-live-console"', settings_tpl)
+    self.assertIn('data-action="toggle-simulator-window"', settings_tpl)
+    self.assertIn('id="btn-open-simulator"', settings_tpl)
     self.assertNotIn('onclick=', settings_tpl)
     self.assertNotIn('onchange=', settings_tpl)
 

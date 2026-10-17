@@ -29,7 +29,13 @@
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
         Save Server
       </button>
-      <button type="submit" form="main-form" formaction="/test-webhook/{{ srv_id or idx }}" class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold">Test Webhook</button>
+      <button type="submit" 
+              data-action="test-webhook"
+              data-server-id="{{ srv_id or idx }}"
+              data-card-index="{{ idx }}"
+              form="main-form" 
+              formaction="/test-webhook/{{ srv_id or idx }}" 
+              class="text-indigo-400 hover:text-indigo-300 text-xs font-semibold cursor-pointer">Test Webhook</button>
       <button type="submit" form="main-form" formaction="/delete-server/{{ srv_id or idx }}" formnovalidate class="text-red-400 hover:text-red-300 text-xs font-semibold">Remove Server</button>
     </div>
   </div>

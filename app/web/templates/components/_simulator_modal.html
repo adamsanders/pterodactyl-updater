@@ -1,7 +1,7 @@
 {% set c = cfg if (cfg is defined and cfg) else None %}
 {% set prev = preview if (preview is defined and preview) else None %}
 <!-- Draggable Test Simulator & MitM Window (No backdrop, fully interactive with main page) -->
-<div id="test-simulator-window" class="{% if not (c and c.test_mode) %}hidden{% endif %} fixed top-6 right-6 z-40 w-[470px] max-w-[94vw] bg-gray-900 border border-amber-500/60 rounded-xl shadow-2xl flex flex-col max-h-[88vh]">
+<div id="test-simulator-window" class="hidden fixed top-6 right-6 z-40 w-[470px] max-w-[94vw] bg-gray-900 border border-amber-500/60 rounded-xl shadow-2xl flex flex-col max-h-[88vh]">
   <!-- Draggable Window Header -->
   <div id="test-simulator-header" class="flex justify-between items-center px-4 py-2.5 bg-gray-950/90 border-b border-gray-800 rounded-t-xl cursor-move select-none">
     <div class="flex items-center gap-2">
@@ -10,7 +10,7 @@
     </div>
     <div class="flex items-center gap-2">
       <button type="button" data-action="clear-preview" class="text-gray-400 hover:text-gray-200 text-xs px-1.5 py-0.5 rounded hover:bg-gray-800 transition" title="Clear current preview">Clear Feed</button>
-      <button type="button" data-action="close-modal" data-target="test-simulator-window" class="text-gray-400 hover:text-white text-base font-bold px-1">&times;</button>
+      <button type="button" data-action="close-modal" data-target="test-simulator-window" class="text-gray-400 hover:text-white text-base font-bold px-1" title="Close window" aria-label="Close simulator window">&times;</button>
     </div>
   </div>
 

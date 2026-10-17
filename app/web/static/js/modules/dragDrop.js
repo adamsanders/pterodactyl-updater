@@ -13,27 +13,45 @@ export function makeDraggable(elId, headerId) {
   const header = document.getElementById(headerId);
   if (!el || !header) return;
 
-  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
   header.onmousedown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
     if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'INPUT') return;
     e.preventDefault();
-    pos3 = e.clientX;
-    pos4 = e.clientY;
-    document.onmouseup = () => {
-      document.onmouseup = null;
-      document.onmousemove = null;
-    };
-    document.onmousemove = (ev) => {
+    const rect = el.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialLeft = rect.left;
+    const initialTop = rect.top;
+
+    const onMouseMove = (ev) => {
       ev.preventDefault();
-      pos1 = pos3 - ev.clientX;
-      pos2 = pos4 - ev.clientY;
-      pos3 = ev.clientX;
-      pos4 = ev.clientY;
-      el.style.top = (el.offsetTop - pos2) + "px";
-      el.style.left = (el.offsetLeft - pos1) + "px";
+      const deltaX = ev.clientX - startX;
+      const deltaY = ev.clientY - startY;
+
+      let newTop = initialTop + deltaY;
+      let newLeft = initialLeft + deltaX;
+
+      const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 1000;
+      const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 800;
+      const maxLeft = Math.max(0, viewportWidth - (rect.width || 470));
+      const maxTop = Math.max(0, viewportHeight - 40);
+
+      newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+      newTop = Math.max(0, Math.min(newTop, maxTop));
+
+      el.style.top = `${newTop}px`;
+      el.style.left = `${newLeft}px`;
       el.style.right = 'auto';
       el.style.bottom = 'auto';
     };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   };
 }
 

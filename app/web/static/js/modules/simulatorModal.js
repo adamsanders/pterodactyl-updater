@@ -7,19 +7,55 @@ import { showToast } from './toast.js';
 import { sanitizeUrl, clearChildren } from './domUtils.js';
 
 /**
- * Toggles Test Mode immediately and displays or hides the simulation floating window.
+ * Opens the Steam MitM simulator and webhook preview window.
+ */
+export function openSimulatorWindow() {
+  const simWindow = document.getElementById('test-simulator-window');
+  if (simWindow) {
+    simWindow.classList.remove('hidden');
+  }
+}
+
+/**
+ * Closes the Steam MitM simulator and webhook preview window.
+ */
+export function closeSimulatorWindow() {
+  const simWindow = document.getElementById('test-simulator-window');
+  if (simWindow) {
+    simWindow.classList.add('hidden');
+  }
+}
+
+/**
+ * Toggles the Steam MitM simulator and webhook preview window.
+ */
+export function toggleSimulatorWindow() {
+  const simWindow = document.getElementById('test-simulator-window');
+  if (simWindow) {
+    simWindow.classList.toggle('hidden');
+  }
+}
+
+/**
+ * Toggles Test Mode immediately, updates launcher button visibility, and persists configuration.
  *
  * @param {HTMLInputElement} el - Checkbox input element.
  */
 export async function toggleTestModeImmediate(el) {
   const isEnabled = el.checked;
   const simWindow = document.getElementById('test-simulator-window');
-  if (simWindow) {
+  const simBtn = document.getElementById('btn-open-simulator');
+
+  if (simBtn) {
     if (isEnabled) {
-      simWindow.classList.remove('hidden');
+      simBtn.classList.remove('hidden');
     } else {
-      simWindow.classList.add('hidden');
+      simBtn.classList.add('hidden');
     }
+  }
+
+  if (!isEnabled && simWindow) {
+    simWindow.classList.add('hidden');
   }
 
   try {
@@ -29,16 +65,19 @@ export async function toggleTestModeImmediate(el) {
       body: JSON.stringify({ enabled: isEnabled })
     });
     if (!res.ok) throw new Error('Failed to update Test Mode');
-    showToast(isEnabled ? 'Test Mode enabled (Simulation window active)' : 'Test Mode disabled', 'success');
+    showToast(isEnabled ? 'Test Mode enabled' : 'Test Mode disabled', 'success');
   } catch (err) {
     console.error(err);
     el.checked = !isEnabled;
-    if (simWindow) {
+    if (simBtn) {
       if (!isEnabled) {
-        simWindow.classList.remove('hidden');
+        simBtn.classList.remove('hidden');
       } else {
-        simWindow.classList.add('hidden');
+        simBtn.classList.add('hidden');
       }
+    }
+    if (isEnabled && simWindow) {
+      simWindow.classList.add('hidden');
     }
     showToast('Failed to update Test Mode.', 'error');
   }

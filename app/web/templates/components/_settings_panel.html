@@ -26,7 +26,7 @@
       <label class="inline-flex items-center cursor-pointer">
         <input id="test_mode" name="test_mode" type="checkbox" value="true" {% if c and c.test_mode %}checked{% endif %} data-action="toggle-test-mode" class="sr-only peer">
         <div class="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 relative"></div>
-        <span class="ml-2 text-xs font-medium text-amber-300">Test Mode (Steam MitM simulator)</span>
+        <span class="ml-2 text-xs font-medium text-amber-300">Test Mode</span>
       </label>
 
       <label class="inline-flex items-center cursor-pointer group relative" title="Verify SSL certificates when connecting to Pterodactyl. Leave disabled if using self-signed certificates.">
@@ -42,11 +42,21 @@
       </label>
     </div>
 
-    <button type="button" 
-            data-action="toggle-live-console"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-indigo-300 hover:text-indigo-200 transition cursor-pointer shadow-sm">
-      <svg class="w-3.5 h-3.5 text-indigo-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-      Live Console
-    </button>
+    <div class="flex items-center gap-3">
+      <button type="button" 
+              id="btn-open-simulator"
+              data-action="toggle-simulator-window"
+              class="{% if not (c and c.test_mode) %}hidden {% endif %}flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-amber-300 hover:text-amber-200 transition cursor-pointer shadow-sm">
+        <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Steam MitM / Test Simulator &amp; Webhook Feed
+      </button>
+
+      <button type="button" 
+              data-action="toggle-live-console"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-indigo-300 hover:text-indigo-200 transition cursor-pointer shadow-sm">
+        <svg class="w-3.5 h-3.5 text-indigo-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        Live Console
+      </button>
+    </div>
   </div>
 </div>

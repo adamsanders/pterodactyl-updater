@@ -469,7 +469,7 @@ async def test_webhook(
   status_msg = await service.test_webhook(server_id)
   if request.headers.get("accept") == "application/json":
     return JSONResponse({"status": "ok", "message": status_msg, "server_id": server_id})
-  return RedirectResponse(url="/", status_code=303)
+  return RedirectResponse(url="/?toast=test_webhook&open_sim=1", status_code=303)
 
 
 @router.post("/api/check-now", response_model=CheckNowResponse)
