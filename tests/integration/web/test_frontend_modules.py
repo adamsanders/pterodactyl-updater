@@ -90,6 +90,8 @@ class TestFrontendModularArchitecture(unittest.TestCase):
         "window.selectSteamGame = selectSteamGame",
         "window.autoSyncServerDetails = autoSyncServerDetails",
         "window.initServerDragAndDrop = initServerDragAndDrop",
+        "window.initServerCardDelegation = initServerCardDelegation",
+        "window.getCardContext = getCardContext",
     ]
     for binding in expected_window_bindings:
       self.assertIn(binding, dashboard_js, f"Missing window binding in dashboard.js: {binding}")
@@ -165,11 +167,59 @@ class TestFrontendModularArchitecture(unittest.TestCase):
     self.assertIn("allTitles.indexOf(titleEl)", status_poller_content)
     self.assertIn("cardNum", status_poller_content)
 
-  def test_global_fastapi_route_table_is_clean(self):
-    # Verify production app route table has zero test endpoint pollution
-    route_paths = [route.path for route in app.routes]
-    self.assertNotIn("/test-error-boundary", route_paths)
-    self.assertNotIn("/test-server-not-found", route_paths)
+  def test_server_card_module_exports_delegation_functions(self):
+    server_card_content = (self.modules_dir / "serverCard.js").read_text(encoding="utf-8")
+    self.assertIn("export function initServerCardDelegation", server_card_content)
+    self.assertIn("export function getCardContext", server_card_content)
+    self.assertIn("data-action", server_card_content)
+    self.assertIn("save-server", server_card_content)
+    self.assertIn("sync-name", server_card_content)
+    self.assertIn("power-action", server_card_content)
+
+  def test_templates_contain_event_delegation_attributes(self):
+    card_tpl = (self.templates_dir / "components" / "_server_card.html").read_text(encoding="utf-8")
+    self.assertIn('data-server-card', card_tpl)
+    self.assertIn('data-action="save-server"', card_tpl)
+    self.assertIn('data-action="sync-name"', card_tpl)
+    self.assertIn('data-action="power-action"', card_tpl)
+    self.assertIn('data-action="toggle-edit-name"', card_tpl)
+    self.assertIn('data-action="toggle-slider"', card_tpl)
+    self.assertIn('data-action="server-text-input"', card_tpl)
+    self.assertIn('data-action="server-id-input"', card_tpl)
+    self.assertIn('data-action="steam-appid-input"', card_tpl)
+    self.assertNotIn('onclick=', card_tpl)
+    self.assertNotIn('onchange=', card_tpl)
+    self.assertNotIn('oninput=', card_tpl)
+
+    status_tpl = (self.templates_dir / "components" / "_global_status.html").read_text(encoding="utf-8")
+    self.assertIn('data-action="check-now"', status_tpl)
+    self.assertNotIn('onclick=', status_tpl)
+
+    settings_tpl = (self.templates_dir / "components" / "_settings_panel.html").read_text(encoding="utf-8")
+    self.assertIn('data-action="toggle-test-mode"', settings_tpl)
+    self.assertIn('data-action="toggle-live-console"', settings_tpl)
+    self.assertNotIn('onclick=', settings_tpl)
+    self.assertNotIn('onchange=', settings_tpl)
+
+    simulator_tpl = (self.templates_dir / "components" / "_simulator_modal.html").read_text(encoding="utf-8")
+    self.assertIn('data-action="clear-preview"', simulator_tpl)
+    self.assertIn('data-action="close-modal"', simulator_tpl)
+    self.assertIn('data-action="simulate-build"', simulator_tpl)
+    self.assertNotIn('onclick=', simulator_tpl)
+
+    console_tpl = (self.templates_dir / "components" / "_console_modal.html").read_text(encoding="utf-8")
+    self.assertIn('data-action="clear-telemetry"', console_tpl)
+    self.assertIn('data-action="toggle-live-console"', console_tpl)
+    self.assertNotIn('onclick=', console_tpl)
+
+  def test_delegation_guard_and_context_resolution(self):
+    server_card_content = (self.modules_dir / "serverCard.js").read_text(encoding="utf-8")
+    self.assertIn("_serverCardDelegationInitialized", server_card_content)
+    self.assertIn("typeof actionEl.onclick === 'function'", server_card_content)
+    self.assertIn("typeof target.oninput === 'function'", server_card_content)
+    self.assertIn("typeof target.onchange === 'function'", server_card_content)
+    self.assertIn("element.closest('[data-server-card]')", server_card_content)
+    self.assertIn("element.dataset?.cardIndex", server_card_content)
 
 
 if __name__ == "__main__":

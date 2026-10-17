@@ -246,7 +246,7 @@ class TestConfigAndVcsDecoupling(unittest.TestCase):
   def test_config_get_commit_code_is_pure_and_deterministic(self):
     self.assertEqual(get_commit_code(), DEFAULT_COMMIT_CODE)
     self.assertEqual(DEFAULT_COMMIT_CODE, "92206dc")
-    self.assertEqual(APP_VERSION, "1.29.0")
+    self.assertEqual(APP_VERSION, "1.30.0")
 
   def test_resolve_commit_code_lives_in_vcs_adapter(self):
     resolved = resolve_commit_code()

@@ -182,9 +182,9 @@ class TestDashboardModularisation(unittest.TestCase):
     self.assertLess(res.text.index('id="btn-check-now"'), res.text.index('id="main-form"'))
 
     # Footer elements
-    self.assertEqual(APP_VERSION, "1.29.0")
+    self.assertEqual(APP_VERSION, "1.30.0")
     self.assertIn(f"v{APP_VERSION}", res.text)
-    self.assertIn("v1.29.0", res.text)
+    self.assertIn("v1.30.0", res.text)
     self.assertIn(f"commit {COMMIT_CODE}", res.text)
 
     # Modals
@@ -230,9 +230,9 @@ class TestDashboardModularisation(unittest.TestCase):
         app_version=APP_VERSION,
         commit_code=COMMIT_CODE,
     )
-    self.assertEqual(APP_VERSION, "1.29.0")
+    self.assertEqual(APP_VERSION, "1.30.0")
     self.assertIn(f"v{APP_VERSION}", html_footer)
-    self.assertIn("v1.29.0", html_footer)
+    self.assertIn("v1.30.0", html_footer)
     self.assertIn(f"commit {COMMIT_CODE}", html_footer)
 
     # 5. Modals partial

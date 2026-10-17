@@ -380,6 +380,14 @@ export async function saveSingleServer(identifier, idx) {
     const cardNum = getCardDisplayNumber(idx, titleEl);
     if (titleEl) titleEl.textContent = `Server #${cardNum}: ${savedSrv.name}`;
 
+    if (savedSrv && savedSrv.server_id) {
+      const cardEl = document.querySelector(`[data-card-index="${idx}"]`);
+      if (cardEl) cardEl.setAttribute('data-server-id', savedSrv.server_id);
+      if (saveBtn) saveBtn.setAttribute('data-server-id', savedSrv.server_id);
+      const refreshBtn = document.getElementById('refresh_name_btn_' + idx);
+      if (refreshBtn) refreshBtn.setAttribute('data-server-id', savedSrv.server_id);
+    }
+
     checkServerDirty(idx);
     showToast(`Server #${cardNum} (${savedSrv.name}) saved successfully!`, 'success');
   } catch (err) {
@@ -450,6 +458,10 @@ export function renderStopButton(btn, idx, isEnabled, serverId = null) {
   if (!btn) return;
   btn.disabled = !isEnabled;
   const ident = serverId || idx;
+  btn.setAttribute('data-action', 'power-action');
+  btn.setAttribute('data-power-action', 'stop');
+  btn.setAttribute('data-server-id', ident);
+  btn.setAttribute('data-card-index', idx);
   btn.onclick = () => triggerPowerAction(ident, 'stop', idx);
   btn.innerHTML = `${STOP_ICON} Stop`;
   const base = "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ";
@@ -463,6 +475,10 @@ export function renderKillButton(btn, idx, isEnabled, serverId = null) {
   if (!btn) return;
   btn.disabled = !isEnabled;
   const ident = serverId || idx;
+  btn.setAttribute('data-action', 'power-action');
+  btn.setAttribute('data-power-action', 'kill');
+  btn.setAttribute('data-server-id', ident);
+  btn.setAttribute('data-card-index', idx);
   btn.onclick = () => triggerPowerAction(ident, 'kill', idx);
   btn.innerHTML = `${KILL_ICON} Kill`;
   const base = "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ";
@@ -575,4 +591,166 @@ export async function triggerPowerAction(identifier, action, uiIndex = null) {
       window.pollLiveStatus();
     }
   }
+}
+
+/**
+ * Resolves context ({ card, idx, serverId }) for any element within a server card.
+ *
+ * @param {HTMLElement} element - Target DOM element.
+ * @returns {{ card: HTMLElement|null, idx: string|undefined, serverId: string }}
+ */
+export function getCardContext(element) {
+  if (!element) return { card: null, idx: undefined, serverId: '' };
+  const card = element.closest ? (element.closest('[data-server-card]') || element.closest('[id^="srv_title_"]')?.parentElement?.parentElement) : null;
+  let idx = element.dataset?.cardIndex;
+  let serverId = element.dataset?.serverId;
+  if ((idx === undefined || idx === null || idx === '') && card) {
+    idx = card.dataset?.cardIndex;
+  }
+  if (!serverId && card) {
+    serverId = card.dataset?.serverId;
+  }
+  if (idx === undefined || idx === null || idx === '') {
+    const idMatch = (element.id || '').match(/_(\d+)$/);
+    if (idMatch) {
+      idx = idMatch[1];
+    }
+  }
+  return { card, idx, serverId: serverId || idx || '' };
+}
+
+/**
+ * Initializes container-level event delegation for server card and dashboard interactions.
+ * Intercepts click, input, change, and focus events using data-action attributes while
+ * preserving backward compatibility with inline handlers.
+ *
+ * @param {HTMLElement|Document} [container=document] - Root container element.
+ */
+export function initServerCardDelegation(container = document) {
+  if (!container || container._serverCardDelegationInitialized) return;
+  container._serverCardDelegationInitialized = true;
+
+  container.addEventListener('click', (e) => {
+    const actionEl = e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!actionEl) return;
+    if (typeof actionEl.onclick === 'function' || (actionEl.getAttribute && actionEl.getAttribute('onclick'))) return;
+
+    const action = actionEl.dataset.action;
+    const { idx, serverId } = getCardContext(actionEl);
+
+    switch (action) {
+      case 'save-server':
+        saveSingleServer(serverId, idx);
+        break;
+      case 'sync-name':
+        refreshServerName(serverId, idx);
+        break;
+      case 'power-action': {
+        const powerAct = actionEl.dataset.powerAction;
+        if (powerAct) triggerPowerAction(serverId, powerAct, idx);
+        break;
+      }
+      case 'toggle-edit-name':
+        toggleEditName(idx);
+        break;
+      case 'toggle-steam-search':
+        if (typeof window.toggleSteamAppSearch === 'function') {
+          window.toggleSteamAppSearch(idx);
+        }
+        break;
+      case 'close-steam-search':
+        if (typeof window.closeSteamAppSearch === 'function') {
+          window.closeSteamAppSearch(idx);
+        }
+        break;
+      case 'check-now':
+        if (typeof window.triggerCheckNow === 'function') {
+          window.triggerCheckNow(actionEl);
+        }
+        break;
+      case 'toggle-live-console':
+        if (typeof window.toggleLiveConsole === 'function') {
+          window.toggleLiveConsole();
+        }
+        break;
+      case 'clear-preview':
+        if (typeof window.clearTestPreview === 'function') {
+          window.clearTestPreview();
+        }
+        break;
+      case 'simulate-build':
+        if (typeof window.triggerSimulateBuild === 'function') {
+          window.triggerSimulateBuild();
+        }
+        break;
+      case 'clear-telemetry':
+        if (typeof window.clearTelemetryLogs === 'function') {
+          window.clearTelemetryLogs();
+        }
+        break;
+      case 'close-modal': {
+        const targetId = actionEl.dataset.target;
+        if (targetId) {
+          const m = document.getElementById(targetId);
+          if (m) m.classList.add('hidden');
+        }
+        break;
+      }
+    }
+  });
+
+  container.addEventListener('input', (e) => {
+    const target = e.target;
+    if (!target) return;
+    if (typeof target.oninput === 'function' || (target.getAttribute && target.getAttribute('oninput'))) return;
+
+    const action = target.dataset?.action;
+    const { idx, serverId } = getCardContext(target);
+
+    if (action === 'server-id-input' || (target.id && target.id.startsWith('srv_id_input_'))) {
+      onServerIdInput(serverId, idx);
+    } else if (action === 'steam-appid-input' || (target.id && target.id.startsWith('srv_appid_input_'))) {
+      onSteamAppIdInput(idx);
+    } else if (action === 'steam-search-query' || (target.id && target.id.startsWith('steam_search_query_'))) {
+      if (typeof window.onSteamSearchQueryInput === 'function') {
+        window.onSteamSearchQueryInput(idx);
+      }
+    } else if (idx !== undefined && idx !== null) {
+      checkServerDirty(idx);
+    }
+  });
+
+  container.addEventListener('change', (e) => {
+    const target = e.target;
+    if (!target) return;
+    if (typeof target.onchange === 'function' || (target.getAttribute && target.getAttribute('onchange'))) return;
+
+    const action = target.dataset?.action;
+    const { idx, serverId } = getCardContext(target);
+
+    if (action === 'server-id-input' || action === 'server-id-change' || (target.id && target.id.startsWith('srv_id_input_'))) {
+      onServerIdChange(serverId, idx);
+    } else if (action === 'toggle-slider' || target.dataset?.field) {
+      const field = target.dataset.field;
+      if (field && idx !== undefined) {
+        toggleServerSlider(serverId, idx, field, target);
+      }
+    } else if (action === 'toggle-test-mode' || target.name === 'test_mode') {
+      if (typeof window.toggleTestModeImmediate === 'function') {
+        window.toggleTestModeImmediate(target);
+      }
+    }
+  });
+
+  container.addEventListener('focusin', (e) => {
+    const target = e.target;
+    if (!target) return;
+    const action = target.dataset?.action;
+    const { idx } = getCardContext(target);
+    if (action === 'steam-appid-input' || (target.id && target.id.startsWith('srv_appid_input_'))) {
+      if (typeof window.openSteamAppSearch === 'function') {
+        window.openSteamAppSearch(idx);
+      }
+    }
+  });
 }

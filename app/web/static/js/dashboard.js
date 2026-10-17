@@ -39,7 +39,9 @@ import {
   renderStopButton,
   renderKillButton,
   updatePowerButtons,
-  triggerPowerAction as _triggerPowerAction
+  triggerPowerAction as _triggerPowerAction,
+  getCardContext,
+  initServerCardDelegation
 } from './modules/serverCard.js';
 import {
   openSteamAppSearch,
@@ -79,6 +81,8 @@ export function triggerPowerAction(identifier, action, uiIndex = null) {
   return _triggerPowerAction(identifier, action, uiIndex);
 }
 
+export { getCardContext, initServerCardDelegation };
+
 // Bind handlers to global window object for HTML inline onclick/onchange/oninput attributes
 window.makeDraggable = makeDraggable;
 window.toggleLiveConsole = toggleLiveConsole;
@@ -113,6 +117,8 @@ window.initServerBaselines = initServerBaselines;
 window.checkServerDirty = checkServerDirty;
 window.initServerDragAndDrop = initServerDragAndDrop;
 window.reindexServerCards = reindexServerCards;
+window.getCardContext = getCardContext;
+window.initServerCardDelegation = initServerCardDelegation;
 
 // Countdown ticker
 setInterval(updateCountdowns, 1000);
@@ -129,6 +135,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Orchestrate module initialization on DOM ready
 function initDashboard() {
+  initServerCardDelegation();
   makeDraggable('test-simulator-window', 'test-simulator-header');
   makeDraggable('live-console-window', 'live-console-header');
   initServerDragAndDrop();

@@ -179,7 +179,11 @@ class TestRouteIsolationAndDependencyInjection(unittest.TestCase):
     self.mock_service.sync_server_name = AsyncMock(return_value="Synced Server Name")
     res = self.client.post("/api/servers/srv-beta/sync-name", json={"server_id": "srv-beta"})
     self.assertEqual(res.status_code, 200)
-    self.assertEqual(res.json(), {"status": "ok", "name": "Synced Server Name"})
+    data = res.json()
+    self.assertEqual(data.get("status"), "ok")
+    self.assertEqual(data.get("name"), "Synced Server Name")
+    self.assertEqual(data.get("server_id"), "srv-beta")
+    self.assertTrue(data.get("success"))
     self.mock_service.sync_server_name.assert_called_once_with("srv-beta", server_id_override="srv-beta")
 
   def test_toggle_server_setting_route(self):

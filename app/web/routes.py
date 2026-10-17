@@ -37,14 +37,20 @@ from app.web.dependencies import (
     get_status_service,
 )
 from app.web.schemas import (
+    CheckNowResponse,
+    ClearBuildRequest,
+    ClearBuildResponse,
     DashboardViewModel,
     LookupNameResponse,
     PowerActionResponse,
     ServerCardViewModel,
     SettingsFormData,
     SimulateBuildRequest,
+    SimulateBuildResponse,
     SingleServerSaveRequest,
+    SingleServerSaveResponse,
     SyncNameRequest,
+    SyncNameResponse,
 )
 from app.web.filters import discord_markdown
 from app.web.templating import templates
@@ -163,16 +169,35 @@ async def toggle_test_mode(
   return {"status": "ok", "test_mode": result}
 
 
-@router.post("/api/test/simulate-build")
+@router.post("/api/test/simulate-build", response_model=SimulateBuildResponse)
 async def simulate_build(
     payload: SimulateBuildRequest,
     service: ServerService = Depends(get_service),
-):
+) -> SimulateBuildResponse:
   server_ident = payload.server_id if payload.server_id is not None else payload.server_idx
   build_id = str(payload.build_id).strip()
 
-  await service.trigger_simulated_build(server_ident, build_id)
-  return JSONResponse({"status": "ok", "build_id": build_id})
+  target_id = await service.trigger_simulated_build(server_ident, build_id)
+  return SimulateBuildResponse(
+      status="ok",
+      server_id=str(target_id or server_ident or ""),
+      simulated_build=build_id,
+      build_id=build_id,
+  )
+
+
+@router.post("/api/test/clear-build", response_model=ClearBuildResponse)
+async def clear_simulated_build(
+    payload: Optional[ClearBuildRequest] = None,
+    server_id: Optional[str] = None,
+    service: ServerService = Depends(get_service),
+) -> ClearBuildResponse:
+  target_id = (payload.server_id if payload and payload.server_id else None) or server_id
+  cleared_id = service.clear_simulated_build(target_id)
+  return ClearBuildResponse(
+      status="ok",
+      server_id=cleared_id or target_id or "",
+  )
 
 
 @router.post("/api/test/clear-preview")
@@ -215,17 +240,26 @@ async def search_steam_games(
   return JSONResponse({"status": "ok", "results": serialized})
 
 
-@router.post("/api/servers/{server_id}/sync-name")
+@router.post(
+    "/api/servers/{server_id}/sync-name",
+    response_model=SyncNameResponse,
+)
 async def sync_server_name(
     server_id: str,
     payload: Optional[SyncNameRequest] = None,
     service: ServerService = Depends(get_service),
-):
+) -> SyncNameResponse:
   sid_override = payload.server_id if payload and payload.server_id else None
   name = await service.sync_server_name(
       server_id, server_id_override=sid_override
   )
-  return JSONResponse({"status": "ok", "name": name})
+  target_id = sid_override or server_id
+  return SyncNameResponse(
+      status="ok",
+      server_id=target_id,
+      name=name,
+      success=True,
+  )
 
 
 @router.post("/api/servers/{server_id}/toggle")
@@ -243,14 +277,18 @@ async def toggle_server_setting(
   return JSONResponse({"status": "ok", "field": field, "value": val})
 
 
-@router.post("/api/servers/{server_id}/save")
+@router.post("/api/servers/{server_id}/save", response_model=SingleServerSaveResponse)
 async def save_single_server_route(
     server_id: str,
     payload: SingleServerSaveRequest,
     service: ServerService = Depends(get_service),
-):
+) -> SingleServerSaveResponse:
   updated = await service.save_single_server(server_id, payload.to_command())
-  return JSONResponse({"status": "ok", "server": updated.model_dump()})
+  return SingleServerSaveResponse(
+      status="ok",
+      server_id=updated.server_id or server_id,
+      server=updated,
+  )
 
 
 @router.post("/api/servers/{server_id}/power/{action}", response_model=PowerActionResponse)
@@ -371,6 +409,14 @@ async def test_webhook(
 
   await service.test_webhook(server_id)
   return RedirectResponse(url="/", status_code=303)
+
+
+@router.post("/api/check-now", response_model=CheckNowResponse)
+async def api_check_now(
+    service: ServerService = Depends(get_service),
+) -> CheckNowResponse:
+  await service.trigger_immediate_check()
+  return CheckNowResponse(status="ok", message="Update check initiated")
 
 
 @router.post("/check-now")

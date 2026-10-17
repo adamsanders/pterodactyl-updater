@@ -210,6 +210,22 @@ class ServerService:
 
     return target_server_id or str(identifier)
 
+  def clear_simulated_build(
+      self, identifier: Optional[Union[str, int]] = None
+  ) -> Optional[str]:
+    cfg = self.repo.load()
+    target_id: Optional[str] = None
+    if identifier is not None and str(identifier).strip():
+      idx = self.find_server_index(cfg.servers, identifier)
+      if idx is not None:
+        target_id = cfg.servers[idx].server_id
+      else:
+        target_id = str(identifier).strip()
+      self.simulator_store.clear_simulated_build(target_id)
+    else:
+      self.simulator_store.clear_simulated_build()
+    return target_id
+
   async def toggle_test_mode(self, enabled: bool) -> bool:
     cfg = self.repo.load()
     cfg.test_mode = enabled

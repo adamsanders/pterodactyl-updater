@@ -9,8 +9,8 @@
       <h3 class="text-xs font-bold text-gray-200">Test Simulator & Webhook Feed</h3>
     </div>
     <div class="flex items-center gap-2">
-      <button type="button" onclick="clearTestPreview()" class="text-gray-400 hover:text-gray-200 text-xs px-1.5 py-0.5 rounded hover:bg-gray-800 transition" title="Clear current preview">Clear Feed</button>
-      <button type="button" onclick="document.getElementById('test-simulator-window').classList.add('hidden')" class="text-gray-400 hover:text-white text-base font-bold px-1">&times;</button>
+      <button type="button" data-action="clear-preview" class="text-gray-400 hover:text-gray-200 text-xs px-1.5 py-0.5 rounded hover:bg-gray-800 transition" title="Clear current preview">Clear Feed</button>
+      <button type="button" data-action="close-modal" data-target="test-simulator-window" class="text-gray-400 hover:text-white text-base font-bold px-1">&times;</button>
     </div>
   </div>
 
@@ -33,7 +33,7 @@
       <div class="col-span-3 flex items-end">
         <button type="button" 
                 id="btn-sim-trigger" 
-                onclick="triggerSimulateBuild()" 
+                data-action="simulate-build"
                 class="w-full bg-amber-600 hover:bg-amber-500 text-white font-semibold py-1 px-2 rounded text-xs transition whitespace-nowrap">
           Simulate
         </button>

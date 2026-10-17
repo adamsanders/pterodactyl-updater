@@ -13,14 +13,19 @@ from app.core.models import (
 )
 from app.main import app
 from app.web.schemas import (
+    CheckNowResponse,
+    ClearBuildResponse,
     DashboardViewModel,
     LookupNameResponse,
     PowerActionResponse,
     ServerCardViewModel,
     SettingsUpdateDTO,
     SimulateBuildRequest,
+    SimulateBuildResponse,
     SingleServerSaveRequest,
+    SingleServerSaveResponse,
     SyncNameRequest,
+    SyncNameResponse,
     WebhookPreview,
 )
 
@@ -345,6 +350,21 @@ class TestStronglyTypedRouteResponses(unittest.TestCase):
     self.assertIn(("/api/servers/{server_id}/power/{action}", ("POST",)), route_models)
     self.assertIs(route_models[("/api/servers/{server_id}/power/{action}", ("POST",))], PowerActionResponse)
 
+    self.assertIn(("/api/check-now", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/check-now", ("POST",))], CheckNowResponse)
+
+    self.assertIn(("/api/test/simulate-build", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/test/simulate-build", ("POST",))], SimulateBuildResponse)
+
+    self.assertIn(("/api/test/clear-build", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/test/clear-build", ("POST",))], ClearBuildResponse)
+
+    self.assertIn(("/api/servers/{server_id}/sync-name", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/servers/{server_id}/sync-name", ("POST",))], SyncNameResponse)
+
+    self.assertIn(("/api/servers/{server_id}/save", ("POST",)), route_models)
+    self.assertIs(route_models[("/api/servers/{server_id}/save", ("POST",))], SingleServerSaveResponse)
+
   def test_lookup_name_response_model(self):
     resp = LookupNameResponse(name="Valheim Dedicated Server")
     self.assertEqual(resp.name, "Valheim Dedicated Server")
@@ -416,6 +436,70 @@ class TestStronglyTypedRouteResponses(unittest.TestCase):
     self.assertEqual(validated_power.status, "ok")
     self.assertEqual(validated_power.server_id, "srv-1")
     self.assertEqual(validated_power.action, "restart")
+
+  def test_milestone13_viewmodel_properties_completeness(self):
+    vm_matching = ServerCardViewModel(
+        card_index=0,
+        server_id="srv-1",
+        name="Valheim",
+        current_build="12345",
+        latest_build="12345",
+        status="Idle",
+        countdown_remaining=125,
+    )
+    self.assertTrue(vm_matching.is_matching_build)
+    self.assertFalse(vm_matching.has_differing_builds)
+    self.assertEqual(vm_matching.build_display, "12345")
+    self.assertEqual(vm_matching.formatted_countdown, "2m 5s")
+    self.assertEqual(vm_matching._ephemeral_current_build, "12345")
+    self.assertEqual(vm_matching._ephemeral_latest_build, "12345")
+    self.assertEqual(vm_matching._ephemeral_last_status, "Idle")
+
+    vm_differing = ServerCardViewModel(
+        card_index=1,
+        server_id="srv-2",
+        name="Palworld",
+        current_build="100",
+        latest_build="200",
+        status="Update Available",
+        countdown_remaining=0,
+    )
+    self.assertFalse(vm_differing.is_matching_build)
+    self.assertTrue(vm_differing.has_differing_builds)
+    self.assertEqual(vm_differing.build_display, "100 &rarr; 200")
+    self.assertEqual(vm_differing.formatted_countdown, "")
+
+    dash_vm = DashboardViewModel(
+        panel_url="http://test",
+        api_key="key",
+        servers=[vm_matching, vm_differing],
+    )
+    self.assertTrue(dash_vm.has_servers)
+    self.assertEqual(dash_vm.server_count, 2)
+
+    empty_dash_vm = DashboardViewModel(servers=[])
+    self.assertFalse(empty_dash_vm.has_servers)
+    self.assertEqual(empty_dash_vm.server_count, 0)
+
+  def test_milestone13_response_schemas_validation(self):
+    check_now = CheckNowResponse(status="ok", message="Check running")
+    self.assertEqual(check_now.status, "ok")
+    self.assertEqual(check_now.message, "Check running")
+
+    sim_build = SimulateBuildResponse(status="ok", server_id="srv-1", simulated_build="999", build_id="999")
+    self.assertEqual(sim_build.server_id, "srv-1")
+    self.assertEqual(sim_build.simulated_build, "999")
+
+    clear_build = ClearBuildResponse(status="ok", server_id="srv-1")
+    self.assertEqual(clear_build.server_id, "srv-1")
+
+    sync_name = SyncNameResponse(server_id="srv-1", name="New Name", success=True)
+    self.assertEqual(sync_name.name, "New Name")
+    self.assertTrue(sync_name.success)
+
+    single_save = SingleServerSaveResponse(status="ok", server_id="srv-1", server={"name": "Saved"})
+    self.assertEqual(single_save.server_id, "srv-1")
+    self.assertEqual(single_save.server.name, "Saved")
 
 
 if __name__ == "__main__":

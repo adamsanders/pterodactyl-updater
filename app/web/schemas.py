@@ -76,6 +76,56 @@ class PowerActionResponse(BaseModel):
   server_idx: Optional[int] = None
 
 
+class CheckNowResponse(BaseModel):
+  """Typed response model for immediate unified update check."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str = "ok"
+  message: str = "Update check initiated"
+
+
+class SimulateBuildResponse(BaseModel):
+  """Typed response model for triggering simulated SteamCMD build."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str = "ok"
+  server_id: str = ""
+  simulated_build: str = ""
+  build_id: Optional[str] = None
+
+
+class ClearBuildRequest(BaseModel):
+  """Typed JSON request body for clearing simulated SteamCMD build."""
+  server_id: Optional[str] = None
+
+
+class ClearBuildResponse(BaseModel):
+  """Typed response model for clearing simulated builds."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str = "ok"
+  server_id: str = ""
+
+
+class SyncNameResponse(BaseModel):
+  """Typed response model for synchronizing server name from Pterodactyl Panel."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str = "ok"
+  server_id: str = ""
+  name: Optional[str] = None
+  success: bool = True
+
+
+class SingleServerSaveResponse(BaseModel):
+  """Typed response model for saving an individual server configuration."""
+  model_config = ConfigDict(extra="allow")
+
+  status: str = "ok"
+  server_id: str = ""
+  server: Optional[Union[ServerModel, dict]] = None
+
+
 class ServerCardViewModel(BaseModel):
   """Presentation ViewModel encapsulating individual server configuration and runtime telemetry."""
   model_config = ConfigDict(extra="ignore")
@@ -104,6 +154,49 @@ class ServerCardViewModel(BaseModel):
   @property
   def idx(self) -> int:
     return self.card_index
+
+  @property
+  def _ephemeral_current_build(self) -> str:
+    return self.current_build
+
+  @property
+  def _ephemeral_latest_build(self) -> str:
+    return self.latest_build
+
+  @property
+  def _ephemeral_last_status(self) -> str:
+    return self.status
+
+  @property
+  def has_differing_builds(self) -> bool:
+    return (
+        self.current_build != self.latest_build
+        and self.current_build not in ("Unknown", "?", "")
+        and self.latest_build not in ("Unknown", "?", "")
+    )
+
+  @property
+  def is_matching_build(self) -> bool:
+    return (
+        self.current_build == self.latest_build
+        and self.current_build not in ("Unknown", "?", "")
+    )
+
+  @property
+  def build_display(self) -> str:
+    if self.is_matching_build:
+      return self.latest_build
+    if self.current_build not in ("Unknown", "?", "") or self.latest_build not in ("Unknown", "?", ""):
+      return f"{self.current_build} &rarr; {self.latest_build}"
+    return "Unknown"
+
+  @property
+  def formatted_countdown(self) -> str:
+    if self.countdown_remaining <= 0:
+      return ""
+    mins = self.countdown_remaining // 60
+    secs = self.countdown_remaining % 60
+    return f"{mins}m {secs}s"
 
   def __getitem__(self, item: str) -> Any:
     if hasattr(self, item):
@@ -209,6 +302,14 @@ class DashboardViewModel(BaseModel):
   @property
   def version(self) -> str:
     return self.app_version
+
+  @property
+  def has_servers(self) -> bool:
+    return len(self.servers) > 0
+
+  @property
+  def server_count(self) -> int:
+    return len(self.servers)
 
   def __getitem__(self, item: str) -> Any:
     if hasattr(self, item):

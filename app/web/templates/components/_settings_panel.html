@@ -24,7 +24,7 @@
   <div class="mt-4 pt-3 border-t border-gray-800/80 flex flex-wrap items-center justify-between gap-3">
     <div class="flex flex-wrap items-center gap-6">
       <label class="inline-flex items-center cursor-pointer">
-        <input name="test_mode" type="checkbox" value="true" {% if c and c.test_mode %}checked{% endif %} onchange="toggleTestModeImmediate(this)" class="sr-only peer">
+        <input name="test_mode" type="checkbox" value="true" {% if c and c.test_mode %}checked{% endif %} data-action="toggle-test-mode" class="sr-only peer">
         <div class="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 relative"></div>
         <span class="ml-2 text-xs font-medium text-amber-300">Test Mode (Steam MitM simulator)</span>
       </label>
@@ -43,7 +43,7 @@
     </div>
 
     <button type="button" 
-            onclick="toggleLiveConsole()" 
+            data-action="toggle-live-console"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-indigo-300 hover:text-indigo-200 transition cursor-pointer shadow-sm">
       <svg class="w-3.5 h-3.5 text-indigo-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
       Live Console
