@@ -108,9 +108,9 @@ class RuntimeStateStore:
           continue
         self._server_states[s_id] = ServerRuntimeState(
             server_id=s_id,
-            current_build=srv.current_build,
-            latest_build=srv.latest_build,
-            last_status=srv.last_status,
+            current_build=getattr(srv, "_ephemeral_current_build", "Unknown"),
+            latest_build=getattr(srv, "_ephemeral_latest_build", "Unknown"),
+            last_status=getattr(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE),
         )
 
   def clear(self) -> None:

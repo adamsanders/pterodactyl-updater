@@ -1,6 +1,7 @@
 {% set idx = idx if idx is defined else (loop.index0 if loop is defined else 0) %}
 {% set s = srv if (srv is defined and srv) else None %}
 {% set srv_id = s.server_id if (s and s.server_id) else '' %}
+{% set st = runtime_states[srv_id] if (runtime_states is defined and runtime_states and srv_id in runtime_states) else None %}
 {% set rem = countdown.get_remaining(srv_id) if (countdown is defined and countdown and srv_id) else 0 %}
 {% set target_ts = countdown.get_target(srv_id) if (countdown is defined and countdown and srv_id) else 0 %}
 <div class="bg-gray-800/80 border border-gray-700 rounded-lg p-4 mb-4 relative">
@@ -69,7 +70,7 @@
         <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
         Checking...
       </span>
-      <span id="srv_status_{{ idx }}" class="text-xs font-medium"></span>
+      <span id="srv_status_{{ idx }}" class="text-xs font-medium">{{ st.last_status if (st and st.last_status and st.last_status != 'Idle') else '' }}</span>
     </div>
 
     <!-- Network Address with Mouseover Internal IP & Player Count -->
@@ -101,9 +102,8 @@
         </span>
       </div>
       <div id="srv_builds_{{ idx }}" class="flex items-center gap-1">
-        {% set st = runtime_states[srv_id] if (runtime_states is defined and runtime_states and srv_id in runtime_states) else None %}
-        {% set cur_build = st.current_build if st else (s.current_build if s else 'Unknown') %}
-        {% set lat_build = st.latest_build if st else (s.latest_build if s else 'Unknown') %}
+        {% set cur_build = st.current_build if (st and st.current_build not in ['Unknown', '?', None]) else (s.current_build if s else 'Unknown') %}
+        {% set lat_build = st.latest_build if (st and st.latest_build not in ['Unknown', '?', None]) else (s.latest_build if s else 'Unknown') %}
         {% if s and cur_build == lat_build and cur_build not in ['Unknown', '?', None] %}
           <span class="text-gray-400 mr-1.5">Build:</span><span class="font-mono text-gray-200">{{ lat_build }}</span>
           <svg class="w-4 h-4 text-emerald-400 inline-block ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>

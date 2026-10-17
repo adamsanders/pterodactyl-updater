@@ -8,6 +8,8 @@ from app.core.models import (
     AppConfigModel,
     ServerModel,
     ServerNameResult,
+)
+from app.web.schemas import (
     SettingsUpdateDTO,
     SingleServerSaveRequest,
 )

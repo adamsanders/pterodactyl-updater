@@ -11,7 +11,6 @@ from app.core.models import (
     ServerAllocation,
     ServerModel,
     ServerStatusDTO,
-    SingleServerSaveRequest,
 )
 from app.services.announcement_service import AnnouncementService
 from app.services.countdown import CountdownManager
@@ -21,7 +20,7 @@ from app.services.server_config_service import ServerConfigService
 from app.services.server_power_service import ServerPowerService
 from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
-from app.web.schemas import SettingsFormData
+from app.web.schemas import SettingsFormData, SingleServerSaveRequest
 from starlette.datastructures import FormData
 
 

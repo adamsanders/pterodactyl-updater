@@ -73,7 +73,55 @@ class NotificationError(DomainError):
     self.details = details
 
 
-class ServerNotFoundError(DomainError):
+class UnauthorizedError(PterodactylApiError):
+  """Raised when authentication or authorization to an external service fails."""
+
+  def __init__(
+      self,
+      message: str = "Unauthorized access to panel",
+      status_code: int = 401,
+      server_id: Optional[str] = None,
+  ):
+    super().__init__(message, status_code=status_code, server_id=server_id)
+
+
+class NotFoundError(PterodactylApiError):
+  """Raised when a requested resource or entity is not found."""
+
+  def __init__(
+      self,
+      message: str = "Resource not found",
+      status_code: int = 404,
+      server_id: Optional[str] = None,
+  ):
+    super().__init__(message, status_code=status_code, server_id=server_id)
+
+
+class ConflictError(PterodactylApiError):
+  """Raised when an operation conflicts with the current resource state."""
+
+  def __init__(
+      self,
+      message: str = "Conflict",
+      status_code: int = 409,
+      server_id: Optional[str] = None,
+  ):
+    super().__init__(message, status_code=status_code, server_id=server_id)
+
+
+class ValidationError(PterodactylApiError):
+  """Raised when domain entity or input validation fails."""
+
+  def __init__(
+      self,
+      message: str = "Validation error",
+      status_code: int = 422,
+      server_id: Optional[str] = None,
+  ):
+    super().__init__(message, status_code=status_code, server_id=server_id)
+
+
+class ServerNotFoundError(NotFoundError):
   """Raised when a targeted server identifier does not match any configured server."""
 
   def __init__(
@@ -88,10 +136,8 @@ class ServerNotFoundError(DomainError):
         if " " in message_or_id
         else f"Server '{message_or_id}' not found."
     )
-    super().__init__(msg)
+    super().__init__(msg, status_code=status_code, server_id=sid)
     self.identifier = sid
-    self.server_id = sid
-    self.status_code = status_code
 
 
 class InvalidPowerActionError(DomainError):

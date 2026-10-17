@@ -4,7 +4,8 @@ from typing import Optional, Union
 from app.adapters.discord import DiscordAdapter
 from app.core.config import TIMING_CONFIG
 from app.core.exceptions import NotificationError
-from app.core.models import ServerModel, SteamPatchNotes, WebhookPreview
+from app.core.models import ServerModel, SteamPatchNotes
+from app.web.schemas import WebhookPreview
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     NotificationGateway,

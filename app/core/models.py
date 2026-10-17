@@ -1,15 +1,25 @@
 from enum import Enum
-import re
-from typing import Any, List, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, List, NamedTuple, Optional, Union
 from app.core.catalogs import IGNORED_STEAM_APPIDS
 from app.core.exceptions import (
     ConfigurationError,
+    ConflictError,
     DomainError,
     InvalidPowerActionError,
+    NotFoundError,
     PterodactylApiError,
     ServerNotFoundError,
+    UnauthorizedError,
+    ValidationError,
 )
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+
+if TYPE_CHECKING:
+  from app.web.schemas import (  # noqa: F401
+      SettingsUpdateDTO,
+      SingleServerSaveRequest,
+      WebhookPreview,
+  )
 
 try:
     from enum import StrEnum
@@ -107,14 +117,47 @@ class PlayerMetrics(NamedTuple):
   max: Optional[int] = None
 
 
-def _parse_status_code_from_error(err_msg: str, default: int = 400) -> int:
-  m = re.search(r"Panel HTTP (\d+)", err_msg)
-  if m:
-    try:
-      return int(m.group(1))
-    except (ValueError, TypeError):
-      pass
-  return default
+def _raise_domain_error(
+    err_msg: str,
+    status_code: Optional[int],
+    error_type: Optional[str],
+    exc_cls: Optional[type[DomainError]] = None,
+    server_id: Optional[str] = None,
+) -> None:
+  """Centralized structured error dispatcher eliminating regex string scraping across domain results."""
+  effective_sc = status_code
+  if exc_cls is not None:
+    if issubclass(exc_cls, PterodactylApiError):
+      raise exc_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
+    if hasattr(exc_cls, "status_code"):
+      try:
+        raise exc_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
+      except TypeError:
+        pass
+    raise exc_cls(err_msg)
+
+  # 5xx Server Errors or explicit 5xx overrides always map to PterodactylApiError
+  if effective_sc is not None and effective_sc >= 500:
+    raise PterodactylApiError(err_msg, status_code=effective_sc, server_id=server_id)
+
+  # Automatic classification relying directly on error_type and status_code
+  if error_type == "InvalidPowerAction":
+    raise InvalidPowerActionError(err_msg, status_code=effective_sc or 400)
+  if error_type in ("ServerNotFound", "NotFound") or effective_sc == 404:
+    if server_id:
+      raise ServerNotFoundError(server_id, status_code=effective_sc or 404)
+    raise NotFoundError(err_msg, status_code=effective_sc or 404, server_id=server_id)
+  if error_type in ("Unauthorized", "Forbidden") or effective_sc in (401, 403):
+    raise UnauthorizedError(err_msg, status_code=effective_sc or 401, server_id=server_id)
+  if error_type == "Conflict" or effective_sc == 409:
+    raise ConflictError(err_msg, status_code=effective_sc or 409, server_id=server_id)
+  if error_type == "ValidationError" or effective_sc == 422:
+    raise ValidationError(err_msg, status_code=effective_sc or 422, server_id=server_id)
+  if error_type == "ConfigurationError":
+    raise ConfigurationError(err_msg, status_code=effective_sc or 400)
+
+  # Safe fallback to generic domain exception
+  raise PterodactylApiError(err_msg, status_code=effective_sc or 400, server_id=server_id)
 
 
 class LocalBuildResult(NamedTuple):
@@ -136,13 +179,14 @@ class LocalBuildResult(NamedTuple):
   ) -> str:
     if self.error or not self.build_id:
       err_msg = self.error or "Manifest build ID could not be resolved"
-      target_cls = exc_cls or PterodactylApiError
       effective_sc = status_code if status_code is not None else self.status_code
-      if effective_sc is None:
-        effective_sc = _parse_status_code_from_error(err_msg, default=400)
-      if issubclass(target_cls, PterodactylApiError):
-        raise target_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
-      raise target_cls(err_msg)
+      _raise_domain_error(
+          err_msg=err_msg,
+          status_code=effective_sc,
+          error_type=self.error_type,
+          exc_cls=exc_cls,
+          server_id=server_id,
+      )
     return self.build_id
 
 
@@ -165,13 +209,14 @@ class ServerNameResult(NamedTuple):
   ) -> str:
     if self.error or not self.name:
       err_msg = self.error or "Server name could not be resolved"
-      target_cls = exc_cls or PterodactylApiError
       effective_sc = status_code if status_code is not None else self.status_code
-      if effective_sc is None:
-        effective_sc = _parse_status_code_from_error(err_msg, default=400)
-      if issubclass(target_cls, PterodactylApiError):
-        raise target_cls(err_msg, status_code=effective_sc or 400, server_id=server_id)
-      raise target_cls(err_msg)
+      _raise_domain_error(
+          err_msg=err_msg,
+          status_code=effective_sc,
+          error_type=self.error_type,
+          exc_cls=exc_cls,
+          server_id=server_id,
+      )
     return self.name
 
 
@@ -199,31 +244,13 @@ class OperationResult(NamedTuple):
     if not self.success:
       err_msg = self.error or "Operation failed"
       effective_sc = status_code if status_code is not None else self.status_code
-      if exc_cls is not None:
-        if issubclass(exc_cls, PterodactylApiError):
-          sc = effective_sc
-          if sc is None:
-            sc = _parse_status_code_from_error(err_msg, default=400)
-          raise exc_cls(err_msg, status_code=sc or 400, server_id=server_id)
-        raise exc_cls(err_msg)
-
-      # Automatic classification
-      if self.error_type == "InvalidPowerAction" or "Invalid power action" in err_msg:
-        action = err_msg.split("'")[1] if "'" in err_msg else err_msg
-        raise InvalidPowerActionError(action, status_code=effective_sc or 400)
-      elif (
-          self.error_type in ("ServerNotFound", "NotFound")
-          or "out of range" in err_msg
-          or "not found" in err_msg.lower()
-      ):
-        raise ServerNotFoundError(server_id or "unknown", status_code=effective_sc or 404)
-      elif self.error_type == "ConfigurationError":
-        raise ConfigurationError(err_msg, status_code=effective_sc or 400)
-      else:
-        sc = effective_sc
-        if sc is None:
-          sc = _parse_status_code_from_error(err_msg, default=400)
-        raise PterodactylApiError(err_msg, status_code=sc or 400, server_id=server_id)
+      _raise_domain_error(
+          err_msg=err_msg,
+          status_code=effective_sc,
+          error_type=self.error_type,
+          exc_cls=exc_cls,
+          server_id=server_id,
+      )
     return self
 
 
@@ -264,46 +291,77 @@ class ServerModel(BaseModel):
   query_port_offset: int = 0
   broadcast_command_template: str = "say {message}"
 
-  # Ephemeral state private attributes for backward compatibility
-  _current_build: str = PrivateAttr(default="Unknown")
-  _latest_build: str = PrivateAttr(default="Unknown")
-  _last_status: str = PrivateAttr(default=ServerUpdateStatus.IDLE)
-
   def __init__(self, **data: Any):
     cur = data.pop("current_build", None)
     lat = data.pop("latest_build", None)
     st = data.pop("last_status", None)
     super().__init__(**data)
     if cur is not None:
-      self._current_build = str(cur)
+      self._ephemeral_current_build = str(cur)
     if lat is not None:
-      self._latest_build = str(lat)
+      self._ephemeral_latest_build = str(lat)
     if st is not None:
-      self._last_status = str(st)
+      self._ephemeral_last_status = str(st)
 
   @property
   def current_build(self) -> str:
-    return self._current_build
+    import warnings
+    warnings.warn(
+        "ServerModel.current_build is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return getattr(self, "_ephemeral_current_build", "Unknown")
 
   @current_build.setter
   def current_build(self, val: str) -> None:
-    self._current_build = str(val)
+    import warnings
+    warnings.warn(
+        "Mutating ServerModel.current_build is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    self._ephemeral_current_build = str(val)
 
   @property
   def latest_build(self) -> str:
-    return self._latest_build
+    import warnings
+    warnings.warn(
+        "ServerModel.latest_build is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return getattr(self, "_ephemeral_latest_build", "Unknown")
 
   @latest_build.setter
   def latest_build(self, val: str) -> None:
-    self._latest_build = str(val)
+    import warnings
+    warnings.warn(
+        "Mutating ServerModel.latest_build is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    self._ephemeral_latest_build = str(val)
 
   @property
   def last_status(self) -> str:
-    return self._last_status
+    import warnings
+    warnings.warn(
+        "ServerModel.last_status is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return getattr(self, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
 
   @last_status.setter
   def last_status(self, val: str) -> None:
-    self._last_status = str(val)
+    import warnings
+    warnings.warn(
+        "Mutating ServerModel.last_status is deprecated. Ephemeral operational state is tracked by RuntimeStateStore.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    self._ephemeral_last_status = str(val)
 
   @field_validator("query_port_offset", mode="before")
   @classmethod
@@ -372,24 +430,6 @@ class AppConfigModel(BaseModel):
     self._last_status = str(val)
 
 
-class SettingsUpdateDTO(BaseModel):
-  panel_url: str = ""
-  api_key: str = ""
-  check_interval: int = Field(default=15, ge=1, le=1440)
-  discord_webhook: str = ""
-  test_mode: bool = False
-  ssl_verify: bool = False
-  servers: List[ServerModel] = Field(default_factory=list)
-
-
-class SingleServerSaveRequest(BaseModel):
-  """Typed JSON request body for saving an individual server card."""
-  name: str = ""
-  server_id: str = ""
-  app_id: str = ""
-  manifest_path: str = ""
-  query_port_offset: int = 0
-  broadcast_command_template: str = "say {message}"
 
 
 class ServerStatusDTO(BaseModel):
@@ -412,11 +452,6 @@ class ServerStatusDTO(BaseModel):
     max_players: Optional[int] = None
 
 
-class WebhookPreview(BaseModel):
-  server_name: str
-  message: str
-  embed: Optional[dict] = None
-  timestamp: str
 
 
 class DetectedServerDetails(BaseModel):
@@ -527,4 +562,25 @@ class PowerTrackerEntry(BaseModel):
     return default
 
   def __contains__(self, item: str) -> bool:
-    return hasattr(self, item)
+    return hasattr(self, item)
+
+
+# Backward-compatible forwarding re-exports for Presentation/Web DTOs
+# (Relocated to app.web.schemas in Milestone 8 / v1.25.0)
+def __getattr__(name: str) -> Any:
+  if name in ("SettingsUpdateDTO", "SingleServerSaveRequest", "WebhookPreview"):
+    import warnings
+    warnings.warn(
+        f"{name} has been relocated to app.web.schemas as part of domain purification. "
+        f"Importing {name} from app.core.models is deprecated and will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    import app.web.schemas as _schemas
+    return getattr(_schemas, name)
+  raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+  return sorted(list(globals().keys()) + ["SettingsUpdateDTO", "SingleServerSaveRequest", "WebhookPreview"])
+

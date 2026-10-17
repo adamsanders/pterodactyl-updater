@@ -144,9 +144,9 @@ class StatusAggregationService:
       lat_build = st.latest_build
       srv_status = st.last_status
     elif srv:
-      cur_build = srv.current_build
-      lat_build = srv.latest_build
-      srv_status = srv.last_status
+      cur_build = getattr(srv, "_ephemeral_current_build", "Unknown")
+      lat_build = getattr(srv, "_ephemeral_latest_build", "Unknown")
+      srv_status = getattr(srv, "_ephemeral_last_status", ServerUpdateStatus.IDLE)
     else:
       cur_build = "Unknown"
       lat_build = "Unknown"

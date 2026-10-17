@@ -7,13 +7,12 @@ from app.core.models import (
     AppConfigModel,
     PowerSignal,
     ServerModel,
-    SettingsUpdateDTO,
 )
 from app.services.server_service import ServerService
 from app.services.build_simulator import BuildSimulatorStore
 from app.services.preview_store import WebhookPreviewStore
 from app.services.countdown import CountdownManager
-from app.web.schemas import SettingsFormData
+from app.web.schemas import SettingsFormData, SettingsUpdateDTO
 from starlette.datastructures import FormData
 
 
@@ -842,7 +841,12 @@ class TestServerIdRouteIntegration(unittest.TestCase):
 
     self.app.state.server_service.find_server_index.return_value = 1
     self.app.state.server_service.send_power_action = AsyncMock(
-        return_value=OperationResult(False, "Invalid power action 'kaboom'.")
+        return_value=OperationResult(
+            False,
+            "Invalid power action 'kaboom'.",
+            status_code=400,
+            error_type="InvalidPowerAction",
+        )
     )
     res = self.client.post("/api/servers/srv-beta/power/kaboom")
     self.assertEqual(res.status_code, 400)
@@ -855,7 +859,12 @@ class TestServerIdRouteIntegration(unittest.TestCase):
     from app.core.models import OperationResult
 
     self.app.state.server_service.send_power_action = AsyncMock(
-        return_value=OperationResult(False, "Panel HTTP 500: Node offline")
+        return_value=OperationResult(
+            False,
+            "Panel HTTP 500: Node offline",
+            status_code=500,
+            error_type="HttpError",
+        )
     )
     res = self.client.post("/api/servers/srv-beta/power/restart")
     self.assertEqual(res.status_code, 500)

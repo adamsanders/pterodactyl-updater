@@ -12,7 +12,6 @@ from app.core.models import (
     ServerRuntimeState,
     ServerStatusDTO,
     ServerUpdateStatus,
-    SettingsUpdateDTO,
     SteamPatchNotes,
 )
 from app.main import app
@@ -20,6 +19,7 @@ from app.services.runtime_state import RuntimeStateStore
 from app.services.server_service import ServerService
 from app.services.status_service import StatusAggregationService
 from app.web.schemas import (
+    SettingsUpdateDTO,
     SimulateBuildRequest,
     SingleServerSaveRequest,
     SyncNameRequest,

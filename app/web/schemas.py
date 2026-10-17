@@ -1,7 +1,36 @@
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field
-from app.core.models import ServerModel, SettingsUpdateDTO, SingleServerSaveRequest
+from app.core.models import ServerModel
 from starlette.datastructures import FormData
+
+
+class SingleServerSaveRequest(BaseModel):
+  """Typed JSON request body for saving an individual server card."""
+  name: str = ""
+  server_id: str = ""
+  app_id: str = ""
+  manifest_path: str = ""
+  query_port_offset: int = 0
+  broadcast_command_template: str = "say {message}"
+
+
+class SettingsUpdateDTO(BaseModel):
+  """Presentation DTO encapsulating global settings form updates."""
+  panel_url: str = ""
+  api_key: str = ""
+  check_interval: int = Field(default=15, ge=1, le=1440)
+  discord_webhook: str = ""
+  test_mode: bool = False
+  ssl_verify: bool = False
+  servers: List[ServerModel] = Field(default_factory=list)
+
+
+class WebhookPreview(BaseModel):
+  """Presentation DTO for simulated or pending Discord notification webhooks."""
+  server_name: str
+  message: str
+  embed: Optional[dict] = None
+  timestamp: str
 
 
 class SimulateBuildRequest(BaseModel):
@@ -129,9 +158,9 @@ class SettingsFormData:
               warn_discord_countdown=get_srv_bool("srv_warndiscord"),
               query_port_offset=port_offset,
               broadcast_command_template=srv_broadcast_cmd,
-              current_build=srv.current_build if srv else "?",
-              latest_build=srv.latest_build if srv else "?",
-              last_status=srv.last_status if srv else "",
+              current_build=getattr(srv, "_ephemeral_current_build", "?") if srv else "?",
+              latest_build=getattr(srv, "_ephemeral_latest_build", "?") if srv else "?",
+              last_status=getattr(srv, "_ephemeral_last_status", "") if srv else "",
           )
       )
 

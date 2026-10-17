@@ -10,9 +10,11 @@ from app.core.exceptions import (
 from app.core.models import (
     DetectedServerDetails,
     ServerModel,
+    SteamSearchResult,
+)
+from app.web.schemas import (
     SettingsUpdateDTO,
     SingleServerSaveRequest,
-    SteamSearchResult,
 )
 from app.core.protocols import (
     ConfigRepositoryProtocol,

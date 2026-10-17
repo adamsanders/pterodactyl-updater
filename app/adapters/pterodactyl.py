@@ -152,11 +152,15 @@ class PterodactylAdapter:
             error_type="ParseError",
         )
       else:
+        error_type = (
+            "NotFound" if res.status_code == 404
+            else ("Unauthorized" if res.status_code in (401, 403) else "HttpError")
+        )
         result = ServerNameResult(
             None,
             f"Panel HTTP {res.status_code}",
             status_code=res.status_code,
-            error_type="NotFound" if res.status_code == 404 else "HttpError",
+            error_type=error_type,
         )
     except Exception as e:
       result = ServerNameResult(None, f"Request error: {e}", error_type="RequestError")
@@ -328,7 +332,12 @@ class PterodactylAdapter:
         # Seed the tracker with the initiated signal
         self._tracker.register_signal(server_id, sig)
         return OperationResult(True, None, status_code=res.status_code)
-      error_type = "NotFound" if res.status_code == 404 else "HttpError"
+      error_type = (
+          "NotFound" if res.status_code == 404
+          else ("Unauthorized" if res.status_code in (401, 403)
+          else ("Conflict" if res.status_code == 409
+          else ("ValidationError" if res.status_code == 422 else "HttpError")))
+      )
       result = OperationResult(
           False,
           f"Panel HTTP {res.status_code}: {res.text}",
@@ -429,7 +438,10 @@ class PterodactylAdapter:
             error_type="ParseError",
         )
       else:
-        error_type = "NotFound" if res.status_code == 404 else "HttpError"
+        error_type = (
+            "NotFound" if res.status_code == 404
+            else ("Unauthorized" if res.status_code in (401, 403) else "HttpError")
+        )
         result = LocalBuildResult(
             None,
             f"Panel HTTP {res.status_code}",
@@ -471,7 +483,12 @@ class PterodactylAdapter:
       )
       if res.status_code in [200, 204]:
         return OperationResult(True, None, status_code=res.status_code)
-      error_type = "NotFound" if res.status_code == 404 else "HttpError"
+      error_type = (
+          "NotFound" if res.status_code == 404
+          else ("Unauthorized" if res.status_code in (401, 403)
+          else ("Conflict" if res.status_code == 409
+          else ("ValidationError" if res.status_code == 422 else "HttpError")))
+      )
       result = OperationResult(
           False,
           f"Panel HTTP {res.status_code}: {res.text}",

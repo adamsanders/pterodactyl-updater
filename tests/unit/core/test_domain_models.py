@@ -91,7 +91,7 @@ class TestDomainModels(unittest.TestCase):
     self.assertEqual(err_res.error, "Manifest missing")
     self.assertEqual(err_res.status_code, 404)
     self.assertEqual(err_res.error_type, "NotFound")
-    with self.assertRaises(PterodactylApiError) as ctx:
+    with self.assertRaises(ServerNotFoundError) as ctx:
       err_res.raise_if_failed(server_id="srv1")
     self.assertEqual(ctx.exception.status_code, 404)
     self.assertEqual(ctx.exception.server_id, "srv1")
@@ -101,11 +101,11 @@ class TestDomainModels(unittest.TestCase):
       err_res.raise_if_failed(status_code=500, server_id="srv1")
     self.assertEqual(ctx_override.exception.status_code, 500)
 
-    # Legacy fallback parsing when status_code is None
+    # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_err = LocalBuildResult(build_id=None, error="Panel HTTP 403: Forbidden")
     with self.assertRaises(PterodactylApiError) as ctx_legacy:
       legacy_err.raise_if_failed()
-    self.assertEqual(ctx_legacy.exception.status_code, 403)
+    self.assertEqual(ctx_legacy.exception.status_code, 400)
 
   def test_server_name_result_attributes_and_unpacking(self):
     res = ServerNameResult(name="My Server", error=None, status_code=200)
@@ -132,7 +132,7 @@ class TestDomainModels(unittest.TestCase):
     self.assertEqual(err_res.error, "Server disappeared")
     self.assertEqual(err_res.status_code, 404)
     self.assertEqual(err_res.error_type, "NotFound")
-    with self.assertRaises(PterodactylApiError) as ctx:
+    with self.assertRaises(ServerNotFoundError) as ctx:
       err_res.raise_if_failed(server_id="srv_test")
     self.assertEqual(ctx.exception.status_code, 404)
     self.assertEqual(ctx.exception.server_id, "srv_test")
@@ -142,11 +142,11 @@ class TestDomainModels(unittest.TestCase):
       err_res.raise_if_failed(status_code=502, server_id="srv_test")
     self.assertEqual(ctx_override.exception.status_code, 502)
 
-    # Legacy fallback parsing
+    # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_res = ServerNameResult(name=None, error="Panel HTTP 503: Unavailable")
     with self.assertRaises(PterodactylApiError) as ctx_legacy:
       legacy_res.raise_if_failed()
-    self.assertEqual(ctx_legacy.exception.status_code, 503)
+    self.assertEqual(ctx_legacy.exception.status_code, 400)
 
   def test_operation_result_attributes_and_unpacking(self):
     res = OperationResult(success=True, error=None, status_code=204)
@@ -218,11 +218,11 @@ class TestDomainModels(unittest.TestCase):
       fail_res.raise_if_failed(status_code=503, server_id="srv5")
     self.assertEqual(ctx_override.exception.status_code, 503)
 
-    # Legacy fallback parsing
+    # Safe fallback parsing when status_code is None (default to 400 without regex scraping)
     legacy_op = OperationResult(success=False, error="Panel HTTP 500: Server crashed")
     with self.assertRaises(PterodactylApiError) as ctx_legacy:
       legacy_op.raise_if_failed()
-    self.assertEqual(ctx_legacy.exception.status_code, 500)
+    self.assertEqual(ctx_legacy.exception.status_code, 400)
 
 
 class TestDomainExceptions(unittest.TestCase):
@@ -660,7 +660,7 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     self.assertEqual(ServerModel.model_validate({"query_port_offset": ""}).query_port_offset, 0)
 
   def test_settings_update_dto_preserves_query_port_offset(self):
-    from app.core.models import SettingsUpdateDTO
+    from app.web.schemas import SettingsUpdateDTO
     dto = SettingsUpdateDTO(
         servers=[
             ServerModel(name="Srv 1", query_port_offset=0),
@@ -689,7 +689,7 @@ class TestPowerStateAndSignalEnums(unittest.TestCase):
     self.assertTrue(restored.ssl_verify)
 
   def test_settings_update_dto_ssl_verify_default_and_custom(self):
-    from app.core.models import SettingsUpdateDTO
+    from app.web.schemas import SettingsUpdateDTO
     dto_default = SettingsUpdateDTO()
     self.assertFalse(dto_default.ssl_verify)
 

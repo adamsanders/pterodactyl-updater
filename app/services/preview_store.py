@@ -1,5 +1,5 @@
 from typing import Optional
-from app.core.models import WebhookPreview
+from app.web.schemas import WebhookPreview
 
 
 class WebhookPreviewStore:

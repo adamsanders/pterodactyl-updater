@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from app.core.exceptions import SimulationError
 from app.core.models import (
@@ -9,10 +9,11 @@ from app.core.models import (
     PowerState,
     ServerModel,
     ServerUpdateStatus,
-    SettingsUpdateDTO,
-    SingleServerSaveRequest,
     SteamSearchResult,
 )
+
+if TYPE_CHECKING:
+  from app.web.schemas import SettingsUpdateDTO, SingleServerSaveRequest
 from app.core.protocols import (
     ConfigRepositoryProtocol,
     CountdownManagerProtocol,
@@ -99,10 +100,10 @@ class ServerService:
   def preview_store(self) -> Optional[WebhookPreviewStore]:
     return self.announcements.preview_store
 
-  def save_settings(self, settings: SettingsUpdateDTO):
+  def save_settings(self, settings: "SettingsUpdateDTO"):
     return self.config_service.save_settings(settings)
 
-  def add_server(self, settings: SettingsUpdateDTO):
+  def add_server(self, settings: "SettingsUpdateDTO"):
     return self.config_service.add_server(settings)
 
   def find_server_index(
@@ -111,7 +112,7 @@ class ServerService:
     return self.config_service.find_server_index(servers, identifier)
 
   def delete_server(
-      self, identifier: Union[str, int], settings: SettingsUpdateDTO
+      self, identifier: Union[str, int], settings: "SettingsUpdateDTO"
   ):
     return self.config_service.delete_server(identifier, settings)
 
@@ -119,7 +120,7 @@ class ServerService:
       self,
       identifier: Union[str, int],
       new_name: str,
-      settings: SettingsUpdateDTO,
+      settings: "SettingsUpdateDTO",
   ) -> bool:
     return await self.config_service.rename_server(identifier, new_name, settings)
 
@@ -232,7 +233,7 @@ class ServerService:
   async def save_single_server(
       self,
       identifier: Union[str, int],
-      data: Union[SingleServerSaveRequest, dict],
+      data: Union["SingleServerSaveRequest", dict],
   ) -> ServerModel:
     return await self.config_service.save_single_server(identifier, data)
 

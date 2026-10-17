@@ -64,11 +64,6 @@ async def dashboard(
       if srv.server_id:
         st = runtime_state.get_server_state(srv.server_id)
         runtime_states[srv.server_id] = st
-        srv.current_build = st.current_build
-        srv.latest_build = st.latest_build
-        srv.last_status = ServerUpdateStatus.from_str(st.last_status)
-      else:
-        srv.last_status = ServerUpdateStatus.IDLE
   else:
     last_check = cfg.last_check
 
